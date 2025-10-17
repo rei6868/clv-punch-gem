@@ -1,0 +1,25 @@
+{
+  "name": "clv-punch-gem",
+  "version": "1.0.0",
+  "description": "Automated check-in system for Cyberlogitec Blueprint.",
+  "main": "index.js",
+  "scripts": {
+    "test": "npx playwright test"
+  },
+  "keywords": [
+    "playwright",
+    "automation",
+    "cyberlogitec"
+  ],
+  "author": "rei6868",
+  "license": "ISC",
+  "devDependencies": {
+    "@playwright/test": "^1.40.1",
+    "@types/node": "^20.10.4"
+  },
+  "dependencies": {
+    "axios": "^1.6.2",
+    "cloudinary": "^1.41.1",
+    "dotenv": "^16.3.1"
+  }
+}

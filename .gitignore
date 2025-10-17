@@ -1,0 +1,12 @@
+# Dependencies
+node_modules/
+
+# Dotenv environment variables file
+.env
+
+# Playwright reports and artifacts
+playwright-report/
+test-results/
+
+# Screenshots
+/screenshots
