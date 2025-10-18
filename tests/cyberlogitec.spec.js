@@ -27,21 +27,23 @@ test('Cyberlogitec Blueprint Punch In/Out', async ({ page }) => {
       await expect(hamburgerMenu).toBeVisible({ timeout: 90000 });
     });
 
-    // Bước 3: Điều hướng đến trang Check In/Out (SỬA LỖI FLAKY)
+    // Bước 3: Điều hướng đến trang Check In/Out (SỬA LỖI FLAKY v14.0)
     await test.step('Navigate to Check In/Out Page', async () => {
       await page.locator('.mtos-btnMnu').click();
       
-      // === SỬA LỖI Ở ĐÂY ===
-      // Bỏ `expect` riêng. Gộp vào lệnh click và cho nó 20 giây để tìm.
-      // Playwright sẽ tự động chờ element `visible` trước khi click.
-      const attendanceMenu = page.locator('div[role="treeitem"]:has-text("Attendance")');
-      await attendanceMenu.click({ timeout: 20000 });
+      // === SỬA LỖI FLAKY (Bản vá 14.0 - locator('visible=true')) ===
+
+      // 1. Tìm 'Attendance' (exact) VÀ (visible=true)
+      // Cách này giải quyết lỗi "6 elements"
+      const attendanceMenu = page.getByText('Attendance', { exact: true }).locator('visible=true');
+      await attendanceMenu.click({ timeout: 15000 });
       
-      const checkInOutMenu = page.getByText('Check In/Out', { exact: true });
-      await checkInOutMenu.click({ timeout: 15000 });
+      // 2. Tìm 'Check In/Out' (exact) VÀ (visible=true)
+      const checkInOutMenu = page.getByText('Check In/Out', { exact: true }).locator('visible=true');
+      await checkInOutMenu.click({ timeout: 10000 });
     });
 
-    // Bước 4: Thực hiện Punch In/Out (Vẫn giữ bản fix chờ spinner)
+    // Bước 4: Thực hiện Punch In/Out
     await test.step('Perform Punch In/Out', async () => {
       const punchButton = page.getByRole('button', { name: 'Punch In/Out' });
       await expect(punchButton).toBeVisible({ timeout: 45000 });
@@ -49,21 +51,25 @@ test('Cyberlogitec Blueprint Punch In/Out', async ({ page }) => {
       
       const loadingOverlay = page.locator('div.webix_loading_cover');
       await expect(loadingOverlay).toBeHidden({ timeout: 30000 });
-      await page.waitForTimeout(3000);
     });
 
-    // Bước 5: Chụp ảnh, upload và gửi thông báo
+    // Bước 5: Chụp ảnh, upload và gửi thông báo (Bản vá 9.0)
     await test.step('Capture, Upload and Notify', async () => {
-      const mainTableAreaLocator = page.locator('div.webix_dtable[role="grid"]').first();
-      await expect(mainTableAreaLocator).toBeVisible({ timeout: 15000 });
-      const screenshotBuffer = await mainTableAreaLocator.screenshot();
+      const mainTableAreaLocator = page.locator('div.webix_dtable[role="grid"]:has-text("Working Holiday")');
       
+      await expect(mainTableAreaLocator).toBeVisible({ timeout: 15000 }); 
+      
+      const screenshotBuffer = await mainTableAreaLocator.screenshot();
       const imageUrl = await uploadToCloudinary(screenshotBuffer);
       await sendGoogleChatNotification(true, imageUrl);
     });
 
   } catch (error) {
-    const errorMessage = error.message || 'An unknown error occurred.';
+    // SỬA LỖI 'error' is of type 'unknown' (ts:18046)
+    let errorMessage = 'An unknown error occurred.';
+    if (error instanceof Error) {
+      errorMessage = error.message;
+    }
     console.error(`Test failed: ${errorMessage}`);
 
     if (!page.isClosed()) {

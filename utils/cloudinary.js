@@ -17,7 +17,7 @@ cloudinary.config({
 async function uploadToCloudinary(imageBuffer) {
   if (!process.env.CLOUDINARY_CLOUD_NAME) {
     console.warn('Cloudinary is not configured. Skipping upload.');
-    return '[https://via.placeholder.com/400x100.png?text=Cloudinary+Not+Configured](https://via.placeholder.com/400x100.png?text=Cloudinary+Not+Configured)';
+    return 'https://via.placeholder.com/400x100.png?text=Cloudinary+Not+Configured';
   }
 
   return new Promise((resolve, reject) => {
