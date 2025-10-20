@@ -1,0 +1,8 @@
+[build]
+  # Đường dẫn tới thư mục chứa các hàm API của Netlify
+  functions = "netlify/functions/"
+
+[functions]
+  # Đảm bảo Netlify cài đặt các dependencies (như @octokit/rest)
+  # từ file package.json của chúng ta
+  node_bundler = "esbuild"
