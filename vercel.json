@@ -1,0 +1,15 @@
+{
+  "version": 2,
+  "builds": [
+    {
+      "src": "api/updateConfig.js",
+      "use": "@vercel/node"
+    }
+  ],
+  "routes": [
+    {
+      "src": "/api/updateConfig",
+      "dest": "api/updateConfig.js"
+    }
+  ]
+}
