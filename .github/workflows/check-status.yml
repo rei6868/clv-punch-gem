@@ -1,0 +1,69 @@
+# Agent, vui lòng tạo một file mới tên là
+# '.github/workflows/check-status.yml'.
+#
+# Mục tiêu: Tạo workflow này để kiểm tra 'config.json'
+# lúc 8:00 AM (trước giờ punch-in) và gửi cảnh báo
+# nếu hệ thống đang bị TẮT.
+#
+# Vui lòng tạo file với nội dung sau:
+
+name: Check Punch Status
+on:
+  workflow_dispatch: # Cho phép chạy thủ công
+  schedule:
+    # Chạy lúc 1:00 UTC (8:00 Sáng VN) - Thứ 3, Thứ 4
+    # Chạy trước 35 phút so với workflow chính
+    - cron: '0 1 * * 2,3'
+
+jobs:
+  check-status-and-notify:
+    name: Check Status and Notify
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+
+    steps:
+      - name: 1. Check out repository
+        uses: actions/checkout@v4
+
+      - name: 2. Check Automation Status
+        id: check_config
+        run: |
+          # Cài 'jq' để đọc JSON
+          sudo apt-get install -y jq
+          # Đọc giá trị từ config.json
+          IS_ENABLED=$(jq '.isAutomationEnabled' config.json)
+          echo "Automation enabled: $IS_ENABLED"
+          # Set output
+          echo "is_enabled=$IS_ENABLED" >> $GITHUB_OUTPUT
+
+      - name: 3. Send Warning Notification if Disabled
+        if: steps.check_config.outputs.is_enabled == 'false' # Chỉ chạy nếu bị TẮT
+        run: |
+          curl -X POST -H 'Content-Type: application/json' \
+          '${{ secrets.GOOGLE_CHAT_WEBHOOK_URL }}' \
+          -d '{
+                "cardsV2": [
+                  {
+                    "cardId": "reminder-card-disabled",
+                    "card": {
+                      "header": {
+                        "title": "🚨 CẢNH BÁO: Auto-Punch Đang TẮT",
+                        "subtitle": "Phát hiện lúc 8:00 AM",
+                        "imageUrl": "https://i.imgur.com/A53t3zP.png",
+                        "imageType": "CIRCLE"
+                      },
+                      "sections": [
+                        {
+                          "widgets": [
+                            {
+                              "textParagraph": {
+                                "text": "Hệ thống Auto-Punch (WFH) đang ở trạng thái TẮT (Disabled).<br><br>Bạn sẽ <b>bị lỡ</b> lượt punch-in lúc 8:35 sáng nay.<br><br>Vui lòng <b>bật lại</b> hệ thống (thay đổi `config.json`) hoặc tự punch-in thủ công."
+                              }
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  }
+                ]
+              }'
