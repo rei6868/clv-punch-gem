@@ -1,13 +1,13 @@
-name: Check Punch Status
+name: Reminder to Enable Punch
 on:
   workflow_dispatch: # Cho phép chạy thủ công
   schedule:
-    # CẬP NHẬT: Chạy lúc 00:00 UTC (7:00 Sáng VN) - Thứ Ba, Thứ Tư
-    - cron: '0 0 * * 2,3'
+    # Chạy lúc 13:00 UTC (20:00 Tối VN) - Thứ Hai, Thứ Ba
+    - cron: '0 13 * * 1,2'
 
 jobs:
-  check-status-and-notify:
-    name: Check Status and Notify
+  check-status-and-remind:
+    name: Check Status and Remind
     runs-on: ubuntu-latest
     timeout-minutes: 2
 
@@ -24,18 +24,18 @@ jobs:
           echo "is_enabled=$IS_ENABLED" >> $GITHUB_OUTPUT
 
       - name: 3. Send Warning Notification if Disabled
-        if: steps.check_config.outputs.is_enabled == 'false'
+        if: steps.check_config.outputs.is_enabled == 'false' # Chỉ chạy nếu bị TẮT
         run: |
           curl -X POST -H 'Content-Type: application/json' \
           '${{ secrets.GOOGLE_CHAT_WEBHOOK_URL }}' \
           -d '{
                 "cardsV2": [
                   {
-                    "cardId": "reminder-card-disabled",
+                    "cardId": "reminder-card-night",
                     "card": {
                       "header": {
                         "title": "🚨 CẢNH BÁO: Auto-Punch Đang TẮT",
-                        "subtitle": "Phát hiện lúc 7:00 AM",
+                        "subtitle": "Phát hiện lúc 20:00 (8 giờ tối)",
                         "imageUrl": "https://i.imgur.com/A53t3zP.png",
                         "imageType": "CIRCLE"
                       },
@@ -44,7 +44,7 @@ jobs:
                           "widgets": [
                             {
                               "textParagraph": {
-                                "text": "Hệ thống Auto-Punch (WFH) đang ở trạng thái TẮT (Disabled).<br><br>Bạn <b>đã bị lỡ</b> lượt punch-in lúc 6:00 sáng nay.<br><br>Vui lòng <b>bật lại</b> hệ thống ngay lập tức (hoặc tự punch-in thủ công)."
+                                "text": "Hệ thống Auto-Punch (WFH) đang ở trạng thái TẮT (Disabled).<br><br>Vui lòng <b>BẬT lại</b> (dùng iOS Shortcut) trước khi đi ngủ, nếu không bạn sẽ <b>bị lỡ</b> lượt punch-in lúc 6:00 sáng mai."
                               }
                             }
                           ]

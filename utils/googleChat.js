@@ -8,8 +8,9 @@ const { GOOGLE_CHAT_WEBHOOK_URL } = process.env;
  * @param {boolean} isSuccess - Trạng thái check-in (thành công/thất bại)
  * @param {string} imageUrl - URL ảnh chụp màn hình từ Cloudinary
  * @param {string} errorMessage - Tin nhắn lỗi (nếu có)
+ * @param {string} recordedPunchTime - Thời gian đọc từ UI (ví dụ: "06:31")
  */
-async function sendGoogleChatNotification(isSuccess, imageUrl, errorMessage = '') {
+async function sendGoogleChatNotification(isSuccess, imageUrl, errorMessage = '', recordedPunchTime = '') {
   if (!GOOGLE_CHAT_WEBHOOK_URL) {
     console.warn('Google Chat Webhook URL is not defined. Skipping notification.');
     return;
@@ -24,15 +25,24 @@ async function sendGoogleChatNotification(isSuccess, imageUrl, errorMessage = ''
   const punchType = currentHourVN < 13 ? 'Punch In' : 'Punch Out';
   const punchEmoji = currentHourVN < 13 ? '☀️' : '🌙';
 
+  // (YÊU CẦU B) Tùy chỉnh Title và Subtitle
+  const successTitle = recordedPunchTime
+    ? `${punchEmoji} ${punchType} Thành Công (lúc ${recordedPunchTime})`
+    : `${punchEmoji} ${punchType} Thành Công`;
+  
+  const timeSubtitle = recordedPunchTime
+    ? `(Giờ hệ thống: ${timeVN} - ${dateVN})`
+    : `Vào lúc ${timeVN} - ${dateVN}`;
+
   const successCard = {
     "cardsV2": [
       {
         "cardId": "punch-card",
         "card": {
           "header": {
-            "title": `${punchEmoji} ${punchType} Thành Công`,
-            "subtitle": `Vào lúc ${timeVN} - ${dateVN}`,
-            "imageUrl": "[https://i.imgur.com/vU5226f.png](https://i.imgur.com/vU5226f.png)",
+            "title": successTitle,
+            "subtitle": timeSubtitle,
+            "imageUrl": "https://i.imgur.com/vU5226f.png",
             "imageType": "CIRCLE"
           },
           "sections": [
@@ -57,7 +67,7 @@ async function sendGoogleChatNotification(isSuccess, imageUrl, errorMessage = ''
           "header": {
             "title": `🚨 ${punchType} Thất Bại`,
             "subtitle": `Vào lúc ${timeVN} - ${dateVN}`,
-            "imageUrl": "[https://i.imgur.com/A53t3zP.png](https://i.imgur.com/A53t3zP.png)",
+            "imageUrl": "https://i.imgur.com/A53t3zP.png",
             "imageType": "CIRCLE"
           },
           "sections": [
