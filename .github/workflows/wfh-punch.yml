@@ -1,4 +1,4 @@
-﻿name: Cyberlogitec Auto Punch (WFH)
+name: Cyberlogitec Auto Punch (WFH)
 on:
   workflow_dispatch: # Cho phép chạy thủ công
   schedule:
@@ -34,14 +34,17 @@ jobs:
           node-version: 20
 
       - name: 4. Install dependencies
+        id: install_deps # THÊM ID
         if: steps.check_config.outputs.is_enabled == 'true'
         run: npm install
 
       - name: 5. Install Playwright browsers and dependencies
+        id: install_playwright # THÊM ID
         if: steps.check_config.outputs.is_enabled == 'true'
         run: npx playwright install --with-deps chromium
 
       - name: 6. Run Playwright test
+        id: run_playwright_test # THÊM ID
         if: steps.check_config.outputs.is_enabled == 'true'
         run: npx playwright test tests/cyberlogitec.spec.js
         env:
@@ -53,7 +56,8 @@ jobs:
           CLOUDINARY_API_SECRET: ${{ secrets.CLOUDINARY_API_SECRET }}
       
       - name: 7. Notify on Workflow Failure
-        if: failure() && steps.check_config.outputs.is_enabled == 'true'
+        # SỬA LỖI: Chỉ chạy nếu CÀI ĐẶT (install) thất bại.
+        if: failure() && (steps.install_deps.outcome == 'failure' || steps.install_playwright.outcome == 'failure')
         run: |
           curl -X POST -H 'Content-Type: application/json' \
           '${{ secrets.GOOGLE_CHAT_WEBHOOK_URL }}' \

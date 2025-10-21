@@ -40,31 +40,39 @@ test('Cyberlogitec Blueprint Punch In/Out', async ({ page }) => {
       await expect(hamburgerMenu).toBeVisible({ timeout: 90000 });
     });
 
-    // Bước 3: Điều hướng đến trang Check In/Out (Bản vá 14.0 - Đã Pass)
+    // Bước 3: Điều hướng đến trang Check In/Out (v20.0 - Đã Pass 325ms)
     await test.step('Navigate to Check In/Out Page', async () => {
       await page.locator('.mtos-btnMnu').click();
       
-      const attendanceMenu = page.getByText('Attendance', { exact: true }).locator('visible=true');
-      await attendanceMenu.click({ timeout: 15000 });
+      const sidebarContainer = page.locator('div.webix_sidebar');
+      await expect(sidebarContainer).toBeVisible({ timeout: 15000 });
+
+      await expect(sidebarContainer.locator('div.webix_tree_item').first()).toBeVisible({ timeout: 10000 });
       
-      const checkInOutMenu = page.getByText('Check In/Out', { exact: true }).locator('visible=true');
+      const attendanceMenu = sidebarContainer.locator('div.webix_tree_item:has-text("Attendance")');
+      await attendanceMenu.click({ timeout: 10000 });
+      
+      const checkInOutMenu = sidebarContainer.locator('div.webix_tree_item:has-text("Check In/Out")');
       await checkInOutMenu.click({ timeout: 10000 });
     });
 
-    // Bước 4: Thực hiện Punch In/Out (SỬA LỖI v15.0)
-    await test.step('Perform Punch In/Out and Wait', async () => {
+    // Bước 4: Thực hiện Punch In/Out (SỬA LỖI v21.0 - Xóa 'wait')
+    await test.step('Perform Punch In/Out', async () => {
       const punchButton = page.getByRole('button', { name: 'Punch In/Out' });
       await expect(punchButton).toBeVisible({ timeout: 45000 });
       await punchButton.click();
       
+      // Chờ spinner biến mất. Đây là "smart wait" DUY NHẤT
+      // chúng ta cần để biết table đã refresh.
       const loadingOverlay = page.locator('div.webix_loading_cover');
       await expect(loadingOverlay).toBeHidden({ timeout: 30000 });
 
-      // (Yêu cầu A) Chờ 10 giây cho table refresh
-      await page.waitForTimeout(10000); 
+      // === SỬA LỖI CRASH (Bản vá 21.0) ===
+      // XÓA BỎ: await page.waitForLoadState('networkidle');
+      // (Vì nó gây crash)
     });
 
-    // Bước 5: Đọc thời gian, Chụp ảnh và Gửi thông báo (SỬA LỖI v15.0)
+    // Bước 5: Đọc thời gian, Chụp ảnh và Gửi thông báo (v15.0)
     await test.step('Capture, Read Time, Upload and Notify', async () => {
       const mainTableAreaLocator = page.locator('div.webix_dtable[role="grid"]:has-text("Working Holiday")');
       await expect(mainTableAreaLocator).toBeVisible({ timeout: 15000 }); 
@@ -93,7 +101,7 @@ test('Cyberlogitec Blueprint Punch In/Out', async ({ page }) => {
         recordedPunchTime = ''; // Bỏ qua nếu không đọc được
       }
 
-      // (Yêu cầu A) Chụp ảnh SAU KHI đã chờ 10s (ở Bước 4)
+      // (Yêu cầu A) Chụp ảnh SAU KHI đã chờ (ở Bước 4)
       const screenshotBuffer = await mainTableAreaLocator.screenshot();
       const imageUrl = await uploadToCloudinary(screenshotBuffer);
       
@@ -111,9 +119,13 @@ test('Cyberlogitec Blueprint Punch In/Out', async ({ page }) => {
     if (!page.isClosed()) {
         const screenshotBuffer = await page.screenshot({ fullPage: true });
         const imageUrl = await uploadToCloudinary(screenshotBuffer);
-        await sendGoogleChatNotification(false, imageUrl, errorMessage, ''); // Lỗi: không gửi thời gian
+        await sendGoogleChatNotification(false, imageUrl, errorMessage, '');
     } else {
-        await sendGoogleChatNotification(false, 'https://i.imgur.com/K6b4F0L.png', `Test failed critically and the page was closed. Error: ${errorMessage}`, '');
+        // Đây là lỗi crash
+        const crashMessage = `Test failed critically and the page was closed. Error: ${errorMessage}`;
+        console.error(crashMessage);
+        // Gửi placeholder (sẽ được googleChat.js xử lý)
+        await sendGoogleChatNotification(false, 'https://i.imgur.com/K6b4F0L.png', crashMessage, '');
     }
     
     throw error;
