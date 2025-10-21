@@ -1,10 +1,10 @@
-name: Cyberlogitec Auto Punch (WFH)
+﻿name: Cyberlogitec Auto Punch (WFH)
 on:
   workflow_dispatch: # Cho phép chạy thủ công
   schedule:
-    # Chạy lúc 1:00 UTC (8:00 Sáng VN) - Thứ 3, Thứ 4
-    - cron: '0 1 * * 2,3'
-    # Chạy lúc 10:35 UTC (17:35 Chiều VN) - Thứ 3, Thứ 4
+    # Chạy lúc 23:00 UTC (6:00 Sáng VN) - Thứ Hai, Thứ Ba (cho sáng T3, T4)
+    - cron: '0 23 * * 1,2'
+    # Chạy lúc 10:35 UTC (17:35 Chiều VN) - Thứ Ba, Thứ Tư
     - cron: '35 10 * * 2,3'
 
 jobs:
@@ -12,7 +12,6 @@ jobs:
     name: Run Punch In/Out Script
     runs-on: ubuntu-latest
     timeout-minutes: 5
-    # Thêm outputs để các bước sau có thể đọc
     outputs:
       is_enabled: ${{ steps.check_config.outputs.is_enabled }}
 
@@ -23,12 +22,9 @@ jobs:
       - name: 2. Check Automation Status
         id: check_config
         run: |
-          # Cài 'jq' để đọc JSON
           sudo apt-get install -y jq
-          # Đọc giá trị từ config.json
           IS_ENABLED=$(jq '.isAutomationEnabled' config.json)
           echo "Automation enabled: $IS_ENABLED"
-          # Set output để các bước sau dùng
           echo "is_enabled=$IS_ENABLED" >> $GITHUB_OUTPUT
 
       - name: 3. Set up Node.js v20
@@ -55,6 +51,17 @@ jobs:
           CLOUDINARY_CLOUD_NAME: ${{ secrets.CLOUDINARY_CLOUD_NAME }}
           CLOUDINARY_API_KEY: ${{ secrets.CLOUDINARY_API_KEY }}
           CLOUDINARY_API_SECRET: ${{ secrets.CLOUDINARY_API_SECRET }}
-
+      
       - name: 7. Notify on Workflow Failure
-        if: failure() && steps.check_config.outputs.is_enabled == 'true' # Chỉ báo lỗi nếu nó được bật
+        if: failure() && steps.check_config.outputs.is_enabled == 'true'
+        run: |
+          curl -X POST -H 'Content-Type: application/json' \
+          '${{ secrets.GOOGLE_CHAT_WEBHOOK_URL }}' \
+          -d '{ "text": "🚨 **Workflow `Auto Punch (WFH)` đã thất bại.**\nLỗi xảy ra ở bước setup (ví dụ: install dependencies), không phải lỗi do script test.\nCần kiểm tra ngay tại tab Actions của GitHub." }'
+
+      - name: 8. Notify if Skipped
+        if: steps.check_config.outputs.is_enabled == 'false'
+        run: |
+          curl -X POST -H 'Content-Type: application/json' \
+          '${{ secrets.GOOGLE_CHAT_WEBHOOK_URL }}' \
+          -d '{ "text": "ℹ️ **Auto Punch (WFH) Skipped (Lúc 6:00 Sáng)**\nHệ thống đang được TẮT (Disabled) trong `config.json`." }'
