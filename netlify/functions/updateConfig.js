@@ -25,12 +25,19 @@ async function sendApiNotification(isEnabled) {
 
   const statusText = isEnabled ? "BẬT" : "TẮT";
   const statusEmoji = isEnabled ? "ℹ️" : "⚠️";
-  const statusColor = isEnabled ? "#36a64f" : "#f2c733";
   const subtitle = isEnabled
     ? "Hệ thống Auto-Punch (WFH) đã sẵn sàng."
     : "Hệ thống Auto-Punch (WFH) sẽ không chạy.";
+  
+  // (Yêu cầu B) Dùng link icon ổn định (không dùng imgur)
+  const imageUrl = isEnabled
+    ? "https://raw.githubusercontent.com/google-gemini/cookbook/main/Ecosystems/GCP/Google-Chat-Vertex-AI/assets/check_circle.png"
+    : "https://raw.githubusercontent.com/google-gemini/cookbook/main/Ecosystems/GCP/Google-Chat-Vertex-AI/assets/warning.png";
 
-  const card = {
+
+  // (Yêu cầu C) Thêm trường "text" ở cấp cao nhất
+  const payload = {
+    "text": `${statusEmoji} HỆ THỐNG ĐÃ ${statusText}`, // Đây là text cho thông báo màn hình khóa
     "cardsV2": [
       {
         "cardId": "api-status-card",
@@ -38,7 +45,7 @@ async function sendApiNotification(isEnabled) {
           "header": {
             "title": `${statusEmoji} HỆ THỐNG ĐÃ ${statusText}`,
             "subtitle": subtitle,
-            "imageUrl": isEnabled ? "https://i.imgur.com/vU5226f.png" : "https://i.imgur.com/A53t3zP.png",
+            "imageUrl": imageUrl,
             "imageType": "CIRCLE"
           }
         }
@@ -47,12 +54,11 @@ async function sendApiNotification(isEnabled) {
   };
 
   try {
-    await axios.post(GOOGLE_CHAT_WEBHOOK_URL, card, {
+    await axios.post(GOOGLE_CHAT_WEBHOOK_URL, payload, {
       headers: { 'Content-Type': 'application/json' }
     });
   } catch (error) {
     console.error('Failed to send Google Chat (API) notification:', error.message);
-    // Không làm crash API nếu gửi noti thất bại
   }
 }
 
