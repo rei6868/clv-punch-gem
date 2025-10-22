@@ -1,12 +1,16 @@
+// File: tests/cyberlogitec.spec.js
+
 // @ts-check
 const { test, expect } = require('@playwright/test');
 const fs = require('fs/promises');
+const core = require('@actions/core'); // Thêm GITHUB_OUTPUT helper
 const { uploadToCloudinary } = require('../utils/cloudinary');
-const { sendGoogleChatNotification } = require('../utils/googleChat');
+// const { sendGoogleChatNotification } = require('../utils/googleChat'); // <-- ĐÃ XÓA
 require('dotenv').config();
 
 const { CYBERLOGITEC_USERNAME, CYBERLOGITEC_PASSWORD } = process.env;
 
+// (Giữ nguyên các hàm: ensurePageAlive, waitNetworkIdle)
 /**
  * Checks if the page is closed and throws a standardized error if it is.
  * @param {import('@playwright/test').Page} page
@@ -23,6 +27,7 @@ async function waitNetworkIdle(page, timeout = 45000, label = 'networkidle') {
   await page.waitForLoadState('networkidle', { timeout });
 }
 
+
 test('Cyberlogitec Blueprint Punch In/Out', async ({ page }) => {
   // Increased timeout for the entire test to handle potential network delays.
   test.setTimeout(150000); 
@@ -30,7 +35,7 @@ test('Cyberlogitec Blueprint Punch In/Out', async ({ page }) => {
   let punchTime = ''; // Variable to store the extracted punch-in/out time.
 
   try {
-    // Step 1: Navigate and Login
+    // (Giữ nguyên Step 1: Navigate and Login)
     await test.step('Navigate to Login Page and Perform Login', async () => {
       await page.goto('https://blueprint.cyberlogitec.com.vn/', { waitUntil: 'networkidle', timeout: 60000 });
 
@@ -46,7 +51,7 @@ test('Cyberlogitec Blueprint Punch In/Out', async ({ page }) => {
       ensurePageAlive(page, 'post-login');
     });
 
-    // Step 2: Navigate to Check In/Out Page via Sidebar
+    // (Giữ nguyên Step 2: Navigate to Check In/Out Page via Sidebar)
     await test.step('Navigate to Check In/Out Page', async () => {
       async function runSidebarNav() {
         ensurePageAlive(page, 'nav-start');
@@ -82,7 +87,7 @@ test('Cyberlogitec Blueprint Punch In/Out', async ({ page }) => {
       ensurePageAlive(page, 'post-sidebar-nav');
     });
 
-    // Step 3: Perform Punch In/Out
+    // (Giữ nguyên Step 3: Perform Punch In/Out)
     await test.step('Perform Punch In/Out', async () => {
       const punchButton = page.getByRole('button', { name: /Punch In\/Out/i });
       await expect(punchButton).toBeVisible({ timeout: 20000 });
@@ -93,8 +98,9 @@ test('Cyberlogitec Blueprint Punch In/Out', async ({ page }) => {
       ensurePageAlive(page, 'after-punch-delay');
     });
 
-    // Step 4: Capture Screenshot, Upload, and Notify
+    // (Step 4: Sửa lại để ghi output)
     await test.step('Capture, Upload, and Notify', async () => {
+      // (Giữ nguyên logic chụp ảnh)
       const leaveHeaderLocator = page.getByRole('columnheader', { name: /Leave Request/i });
       const mainTable = page
         .locator('div.webix_dtable[role="grid"]')
@@ -165,7 +171,15 @@ test('Cyberlogitec Blueprint Punch In/Out', async ({ page }) => {
 
       const imageUrl = await uploadToCloudinary(screenshotBuffer);
 
-      await sendGoogleChatNotification(true, imageUrl, '', punchTime);
+      // --- BẮT ĐẦU SỬA ---
+      // Ghi output cho GitHub Actions
+      if (process.env.GITHUB_OUTPUT) {
+        core.setOutput('image_url', imageUrl);
+        core.setOutput('punch_time', punchTime);
+        core.setOutput('error_message', '');
+      }
+      // await sendGoogleChatNotification(true, imageUrl, '', punchTime); // <-- ĐÃ XÓA
+      // --- KẾT THÚC SỬA ---
     });
 
   } catch (error) {
@@ -194,7 +208,15 @@ test('Cyberlogitec Blueprint Punch In/Out', async ({ page }) => {
       }
     }
     
-    await sendGoogleChatNotification(false, failureImageUrl, errorMessage, '');
+    // --- BẮT ĐẦU SỬA ---
+    // Ghi output LỖI cho GitHub Actions
+    if (process.env.GITHUB_OUTPUT) {
+      core.setOutput('image_url', failureImageUrl);
+      core.setOutput('punch_time', '');
+      core.setOutput('error_message', errorMessage);
+    }
+    // await sendGoogleChatNotification(false, failureImageUrl, errorMessage, ''); // <-- ĐÃ XÓA
+    // --- KẾT THÚC SỬA ---
     
     // Re-throw the error to ensure the test is marked as failed.
     throw error;

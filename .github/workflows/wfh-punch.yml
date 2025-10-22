@@ -1,71 +1,103 @@
+# File: .github/workflows/wfh-punch.yml
 name: Cyberlogitec Auto Punch (WFH)
+
 on:
-  workflow_dispatch: # Cho phép chạy thủ công
+  workflow_dispatch:
   schedule:
-    # Chạy lúc 23:00 UTC (6:00 Sáng VN) - Thứ Hai, Thứ Ba (cho sáng T3, T4)
-    - cron: '0 23 * * 1,2'
-    # Chạy lúc 10:35 UTC (17:35 Chiều VN) - Thứ Ba, Thứ Tư
-    - cron: '35 10 * * 2,3'
+    # (Giờ UTC = Giờ VN - 7)
+    # Chạy lúc 06:00 Sáng VN (T3, T4)
+    - cron: '0 23 * * 1,2' # 23:00 UTC (T2, T3)
+    # Chạy lúc 18:00 Chiều VN (T3, T4)
+    - cron: '0 11 * * 2,3' # 11:00 UTC (T3, T4)
 
 jobs:
   punch-in-out:
     name: Run Punch In/Out Script
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    
+    # Biến để truyền kết quả giữa các bước
     outputs:
-      is_enabled: ${{ steps.check_config.outputs.is_enabled }}
+      punch_status: ${{ steps.run_playwright_test.outcome }}
+      punch_time: ${{ steps.run_playwright_test.outputs.punch_time || '' }}
+      error_message: ${{ steps.run_playwright_test.outputs.error_message || '' }}
+      image_url: ${{ steps.run_playwright_test.outputs.image_url || '' }}
 
     steps:
       - name: 1. Check out repository
         uses: actions/checkout@v4
 
-      - name: 2. Check Automation Status
-        id: check_config
-        run: |
-          sudo apt-get install -y jq
-          IS_ENABLED=$(jq '.isAutomationEnabled' config.json)
-          echo "Automation enabled: $IS_ENABLED"
-          echo "is_enabled=$IS_ENABLED" >> $GITHUB_OUTPUT
+      # (Đã xóa bước 2. Check Automation Status)
 
       - name: 3. Set up Node.js v20
-        if: steps.check_config.outputs.is_enabled == 'true'
         uses: actions/setup-node@v4
         with:
           node-version: 20
 
       - name: 4. Install dependencies
-        id: install_deps # THÊM ID
-        if: steps.check_config.outputs.is_enabled == 'true'
+        id: install_deps
         run: npm install
 
       - name: 5. Install Playwright browsers and dependencies
-        id: install_playwright # THÊM ID
-        if: steps.check_config.outputs.is_enabled == 'true'
+        id: install_playwright
         run: npx playwright install --with-deps chromium
 
       - name: 6. Run Playwright test
-        id: run_playwright_test # THÊM ID
-        if: steps.check_config.outputs.is_enabled == 'true'
-        run: npx playwright test tests/cyberlogitec.spec.js
+        id: run_playwright_test
+        run: |
+          # Chạy test và cho phép nó thất bại mà không dừng workflow
+          npx playwright test tests/cyberlogitec.spec.js || true
+          
+          # (Lưu ý: Script playwright (cyberlogitec.spec.js) sẽ cần được sửa 
+          # để ghi kết quả (imageUrl, errorMessage, punchTime) vào GITHUB_OUTPUT. 
+          # Tạm thời chúng ta sẽ report success/failure.)
+          
         env:
           CYBERLOGITEC_USERNAME: ${{ secrets.CYBERLOGITEC_USERNAME }}
           CYBERLOGITEC_PASSWORD: ${{ secrets.CYBERLOGITEC_PASSWORD }}
-          GOOGLE_CHAT_WEBHOOK_URL: ${{ secrets.GOOGLE_CHAT_WEBHOOK_URL }}
+          GOOGLE_CHAT_WEBHOOK_URL: ${{ secrets.GOOGLE_CHAT_WEBHOOK_URL }} # Vẫn cần cho utils cũ
           CLOUDINARY_CLOUD_NAME: ${{ secrets.CLOUDINARY_CLOUD_NAME }}
           CLOUDINARY_API_KEY: ${{ secrets.CLOUDINARY_API_KEY }}
           CLOUDINARY_API_SECRET: ${{ secrets.CLOUDINARY_API_SECRET }}
       
-      - name: 7. Notify on Workflow Failure
-        # SỬA LỖI: Chỉ chạy nếu CÀI ĐẶT (install) thất bại.
+      - name: 7. Report Status to Vercel API
+        # Luôn chạy, kể cả khi bước 6 thất bại
+        if: always()
+        run: |
+          STATUS="fail"
+          if [ "${{ steps.run_playwright_test.outcome }}" == "success" ]; then
+            STATUS="success"
+          fi
+          
+          # (Chúng ta sẽ tạm thời bỏ qua message, imageUrl cho đến khi sửa playwright)
+          MESSAGE="GHA run result: ${{ steps.run_playwright_test.outcome }}"
+
+          # Lấy period (am/pm) từ giờ UTC của GHA
+          # (Đây là cách GHA tự xác định AM/PM)
+          PERIOD="am" 
+          HOUR_UTC=$(date -u +'%H')
+          if [ "$HOUR_UTC" -gt "10" ] && [ "$HOUR_UTC" -lt "22" ]; then
+             PERIOD="pm"
+          fi
+          
+          # Gửi JSON payload
+          curl -X POST 'https://auto-punch.vercel.app/api/state/report' \
+            -H 'Authorization: Bearer ${{ secrets.PUNCH_SECRET }}' \
+            -H 'Content-Type: application/json' \
+            -d '{
+                  "status": "'"$STATUS"'",
+                  "period": "'"$PERIOD"'",
+                  "message": "'"$MESSAGE"'",
+                  "imageUrl": ""
+                }' \
+            --fail
+            
+      - name: 8. Notify on Workflow Setup Failure
+        # Chỉ chạy nếu CÀI ĐẶT (install) thất bại.
         if: failure() && (steps.install_deps.outcome == 'failure' || steps.install_playwright.outcome == 'failure')
         run: |
           curl -X POST -H 'Content-Type: application/json' \
           '${{ secrets.GOOGLE_CHAT_WEBHOOK_URL }}' \
           -d '{ "text": "🚨 **Workflow `Auto Punch (WFH)` đã thất bại.**\nLỗi xảy ra ở bước setup (ví dụ: install dependencies), không phải lỗi do script test.\nCần kiểm tra ngay tại tab Actions của GitHub." }'
 
-      - name: 8. Notify if Skipped
-        if: steps.check_config.outputs.is_enabled == 'false'
-        run: |
-          curl -X POST -H 'Content-Type: application/json' \
-          '${{ secrets.GOOGLE_CHAT_WEBHOOK_URL }}' \
-          -d '{ "text": "ℹ️ **Auto Punch (WFH) Skipped (Lúc 6:00 Sáng)**\nHệ thống đang được TẮT (Disabled) trong `config.json`." }'
+      # (Đã xóa bước Notify if Skipped)
