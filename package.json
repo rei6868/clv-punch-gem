@@ -4,7 +4,8 @@
   "description": "Automated check-in system for Cyberlogitec Blueprint.",
   "main": "index.js",
   "scripts": {
-    "test": "npx playwright test"
+    "test": "npx playwright test",
+    "dev:api": "npx vercel dev --yes"
   },
   "keywords": [
     "playwright",
