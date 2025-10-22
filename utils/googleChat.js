@@ -1,4 +1,4 @@
-﻿const axios = require('axios');
+const axios = require('axios');
 require('dotenv').config();
 
 const { GOOGLE_CHAT_WEBHOOK_URL } = process.env;
@@ -21,7 +21,9 @@ async function sendGoogleChatNotification(isSuccess, imageUrl, errorMessage = ''
   const dateVN = now.toLocaleDateString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' });
 
   // Xác định title và emoji dựa trên giờ
-  const currentHourVN = parseInt(now.toLocaleTimeString('en-US', { hour: '2-digit', hour12: false, timeZone: 'Asia/Ho_Chi_Minh' }));
+  const currentHourVN = parseInt(
+    now.toLocaleTimeString('en-US', { hour: '2-digit', hour12: false, timeZone: 'Asia/Ho_Chi_Minh' })
+  );
   const punchType = currentHourVN < 13 ? 'Punch In' : 'Punch Out';
   const punchEmoji = currentHourVN < 13 ? '☀️' : '🌙';
 
@@ -29,40 +31,81 @@ async function sendGoogleChatNotification(isSuccess, imageUrl, errorMessage = ''
   const successTitle = recordedPunchTime
     ? `${punchEmoji} ${punchType} Thành Công (lúc ${recordedPunchTime})`
     : `${punchEmoji} ${punchType} Thành Công`;
-  
+
   const timeSubtitle = recordedPunchTime
     ? `(Giờ hệ thống: ${timeVN} - ${dateVN})`
     : `Vào lúc ${timeVN} - ${dateVN}`;
 
   // (SỬA LỖI ẢNH) Dùng link icon ổn định
-  const successIcon = "https://raw.githubusercontent.com/google-gemini/cookbook/main/Ecosystems/GCP/Google-Chat-Vertex-AI/assets/check_circle.png";
-  const failureIcon = "https://raw.githubusercontent.com/google-gemini/cookbook/main/Ecosystems/GCP/Google-Chat-Vertex-AI/assets/warning.png";
-  const placeholderImage = "https://raw.githubusercontent.com/google-gemini/cookbook/main/Ecosystems/GCP/Google-Chat-Vertex-AI/assets/screenshot-placeholder.png";
+  const successIcon =
+    'https://raw.githubusercontent.com/google-gemini/cookbook/main/Ecosystems/GCP/Google-Chat-Vertex-AI/assets/check_circle.png';
+  const failureIcon =
+    'https://raw.githubusercontent.com/google-gemini/cookbook/main/Ecosystems/GCP/Google-Chat-Vertex-AI/assets/warning.png';
+  const placeholderImage =
+    'https://raw.githubusercontent.com/google-gemini/cookbook/main/Ecosystems/GCP/Google-Chat-Vertex-AI/assets/screenshot-placeholder.png';
 
   // (SỬA LỖI "Sent attachment") Thêm text tóm tắt
-  const summaryText = isSuccess
-    ? successTitle
-    : `🚨 ${punchType} Thất Bại`;
+  const summaryText = isSuccess ? successTitle : `🚨 ${punchType} Thất Bại`;
+
+  const successSections = [];
+  if (imageUrl) {
+    successSections.push({
+      widgets: [
+        {
+          image: { imageUrl }
+        }
+      ]
+    });
+  }
 
   const successCard = {
-    "text": summaryText, // Thêm text tóm tắt
-    "cardsV2": [
+    text: summaryText,
+    cardsV2: [
       {
-        "cardId": "punch-card",
-        "card": {
-          "header": {
-            "title": successTitle,
-            "subtitle": timeSubtitle,
-            "imageUrl": successIcon, // Sửa link ảnh
-            "imageType": "CIRCLE"
+        cardId: 'punch-card',
+        card: {
+          header: {
+            title: successTitle,
+            subtitle: timeSubtitle,
+            imageUrl: successIcon,
+            imageType: 'CIRCLE'
           },
-          "sections": [
+          sections: successSections
+        }
+      }
+    ]
+  };
+
+  const failureWidgets = [
+    {
+      textParagraph: {
+        text: `<b>Lỗi:</b> ${errorMessage}`
+      }
+    }
+  ];
+
+  if (imageUrl) {
+    const resolvedImageUrl = imageUrl.includes('K6b4F0L') ? placeholderImage : imageUrl;
+    failureWidgets.push({
+      image: { imageUrl: resolvedImageUrl }
+    });
+  }
+
+  const failureCard = {
+    text: summaryText,
+    cardsV2: [
+      {
+        cardId: 'punch-card-error',
+        card: {
+          header: {
+            title: `🚨 ${punchType} Thất Bại`,
+            subtitle: `Vào lúc ${timeVN} - ${dateVN}`,
+            imageUrl: failureIcon,
+            imageType: 'CIRCLE'
+          },
+          sections: [
             {
-              "widgets": [
-                {
-                  "image": { "imageUrl": imageUrl }
-                }
-              ]
+              widgets: failureWidgets
             }
           ]
         }
@@ -70,38 +113,6 @@ async function sendGoogleChatNotification(isSuccess, imageUrl, errorMessage = ''
     ]
   };
 
-  const failureCard = {
-    "text": summaryText, // Thêm text tóm tắt
-    "cardsV2": [
-      {
-        "cardId": "punch-card-error",
-        "card": {
-          "header": {
-            "title": `🚨 ${punchType} Thất Bại`,
-            "subtitle": `Vào lúc ${timeVN} - ${dateVN}`,
-            "imageUrl": failureIcon, // Sửa link ảnh
-            "imageType": "CIRCLE"
-          },
-          "sections": [
-            {
-              "widgets": [
-                {
-                  "textParagraph": {
-                    "text": `<b>Lỗi:</b> ${errorMessage}`
-                  }
-                },
-                {
-                  // Nếu screenshot bị crash, dùng placeholder
-                  "image": { "imageUrl": imageUrl.includes('K6b4F0L') ? placeholderImage : imageUrl }
-                }
-              ]
-            }
-          ]
-        }
-      }
-    ]
-  };
-  
   const payload = isSuccess ? successCard : failureCard;
 
   try {
@@ -115,4 +126,3 @@ async function sendGoogleChatNotification(isSuccess, imageUrl, errorMessage = ''
 }
 
 module.exports = { sendGoogleChatNotification };
-
