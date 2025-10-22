@@ -2,15 +2,18 @@
 
 const { setPeriodState, getIsOff, getIsEnabled } = require('../../lib/kv');
 const { sendChat } = require('../../lib/chat');
-const { getVietnamDateKey, getCurrentPeriod } = require('../../lib/time');
+const { getVietnamDateKey, getCurrentPeriod, getVietnamTimestamp } = require('../../lib/time');
 
-const expected = process.env.PUNCH_SECRET || 'Thanhnam0';
+// --- SỬA LOGIC XÁC THỰC ---
+const expected = process.env.CRON_SECRET || process.env.PUNCH_SECRET || 'Thanhnam0';
 
-// Helper xác thực
 function authenticate(req) {
-  const hdrSecret = req.headers['x-secret'] || '';
-  if (hdrSecret !== expected) throw new Error('invalid secret');
+  // Cron job và GHA sẽ gửi secret qua header 'Authorization: Bearer <secret>'
+  const auth = req.headers.authorization || '';
+  const token = auth.replace(/^Bearer\s+/, '');
+  if (token !== expected) throw new Error('invalid secret');
 }
+// --- KẾT THÚC SỬA ---
 
 export default async function handler(req, res) {
   const rid = req.headers['x-vercel-id'] || Date.now().toString();
@@ -22,38 +25,48 @@ export default async function handler(req, res) {
     return bad(405, 'method not allowed');
   }
   
-  if (!String(req.headers['content-type'] || '').includes('application/json')) {
-     return bad(415, 'unsupported content-type. Use application/json');
-  }
+  // (Chúng ta sẽ nới lỏng content-type, GHA có thể gửi text/plain)
+  // if (!String(req.headers['content-type'] || '').includes('application/json')) {
+  //    return bad(415, 'unsupported content-type. Use application/json');
+  // }
 
   try {
     // 1. Xác thực
     authenticate(req);
 
-    // 2. Lấy dữ liệu
+    // 2. Lấy dữ liệu (Phải parse body nếu GHA gửi text)
+    let body = req.body;
+    if (typeof req.body === 'string' && req.body.length > 0) {
+      try {
+        body = JSON.parse(req.body);
+      } catch (e) {
+        return bad(400, 'invalid JSON body');
+      }
+    }
+
     const { 
       status, // 'success' | 'fail'
       message = '', 
       imageUrl = '',
-    } = req.body;
+    } = body;
 
     if (!status || (status !== 'success' && status !== 'fail')) {
       return bad(400, 'invalid status. Must be "success" or "fail"');
     }
 
-    const dateKey = (req.body && req.body.date) 
-      ? String(req.body.date) 
+    const dateKey = (body && body.date) 
+      ? String(body.date) 
       : getVietnamDateKey();
       
-    const period = (req.body && req.body.period) 
-      ? String(req.body.period) 
+    const period = (body && body.period) 
+      ? String(body.period) 
       : getCurrentPeriod();
 
     if (period !== 'am' && period !== 'pm') {
       return bad(400, 'invalid period. Must be "am" or "pm"');
     }
     
-    // 3. Kiểm tra điều kiện (Không chạy nếu TẮT hoặc OFF)
+    // 3. Kiểm tra điều kiện
     const [isEnabled, isOff] = await Promise.all([
       getIsEnabled(),
       getIsOff(dateKey)
@@ -74,16 +87,23 @@ export default async function handler(req, res) {
     const periodText = period === 'am' ? 'Punch In (Sáng)' : 'Punch Out (Chiều)';
     
     if (status === 'success') {
+      const recordedTime = body.recordedPunchTime ? new Date(body.recordedPunchTime) : null;
+      const isValidDate = recordedTime && !isNaN(recordedTime);
+      
+      const subtitle = isValidDate
+        ? `Ghi nhận lúc ${getVietnamDateKey(recordedTime)} (auto-time)`
+        : getVietnamTimestamp();
+
       await sendChat({
         title: `✅ ${periodText} Thành Công (Auto)`,
-        subtitle: `Ghi nhận lúc ${getVietnamDateKey(new Date(req.body.recordedPunchTime || undefined))} (auto-time)`, // Sử dụng thời gian từ GHA nếu có
+        subtitle: subtitle,
         imageUrl: imageUrl || undefined,
         icon: 'success',
       });
     } else {
       await sendChat({
         title: `🚨 ${periodText} Thất Bại (Auto)`,
-        message: `<b>Lỗi:</b> ${message || 'Không rõ nguyên nhân từ GHA.'}`,
+        message: `<b>Error:</b> ${message || 'No details from GHA.'}`,
         imageUrl: imageUrl || undefined,
         icon: 'failure',
       });
@@ -95,8 +115,6 @@ export default async function handler(req, res) {
   } catch (e) {
     const msg = (e && e.message) || 'unknown error';
     if (msg.includes('secret')) return bad(403, msg);
-    if (msg.includes('method not allowed')) return bad(405, msg);
-    if (msg.includes('unsupported')) return bad(415, msg);
     return bad(500, 'server error', { detail: msg });
   }
 }
