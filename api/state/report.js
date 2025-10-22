@@ -2,7 +2,7 @@
 
 const { setPeriodState, getIsOff, getIsEnabled } = require('../../lib/kv');
 const { sendChat } = require('../../lib/chat');
-const { getVietnamDateKey, getCurrentPeriod } = require('../../lib/time');
+const { getVietnamDateKey, getCurrentPeriod, getVietnamTimestamp } = require('../../lib/time'); // Thêm getVietnamTimestamp
 
 const expected = process.env.PUNCH_SECRET || 'Thanhnam0';
 
@@ -74,19 +74,31 @@ export default async function handler(req, res) {
     const periodText = period === 'am' ? 'Punch In (Sáng)' : 'Punch Out (Chiều)';
     
     if (status === 'success') {
+      // --- SỬA LỖI NaN (ÁP DỤNG LẠI) ---
+      const recordedTime = req.body.recordedPunchTime ? new Date(req.body.recordedPunchTime) : null;
+      const recordedTimestamp = recordedTime?.getTime();
+      const isValidDate = Number.isFinite(recordedTimestamp);
+
+      const subtitle = isValidDate
+        ? `Ghi nhận lúc ${getVietnamDateKey(recordedTime)} (auto-time)`
+        : getVietnamTimestamp(); // Fallback về giờ hiện tại
+      // --- KẾT THÚC SỬA LỖI NaN ---
+
       await sendChat({
         title: `✅ ${periodText} Thành Công (Auto)`,
-        subtitle: `Ghi nhận lúc ${getVietnamDateKey(new Date(req.body.recordedPunchTime || undefined))} (auto-time)`, // Sử dụng thời gian từ GHA nếu có
+        subtitle: subtitle,
         imageUrl: imageUrl || undefined,
         icon: 'success',
       });
     } else {
+      // --- SỬA LỖI FONT (CHUYỂN SANG TIẾNG ANH) ---
       await sendChat({
         title: `🚨 ${periodText} Thất Bại (Auto)`,
-        message: `<b>Lỗi:</b> ${message || 'Không rõ nguyên nhân từ GHA.'}`,
+        message: `<b>Error:</b> ${message || 'No details from GHA.'}`, // <--- ĐÃ SỬA
         imageUrl: imageUrl || undefined,
         icon: 'failure',
       });
+      // --- KẾT THÚC SỬA LỖI FONT ---
     }
 
     // 6. Trả về kết quả
