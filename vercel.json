@@ -1,0 +1,61 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "crons": [
+    {
+      "path": "/api/cron-reset",
+      "schedule": "5 17 * * *"
+    },
+    {
+      "path": "/api/cron-reminder",
+      "schedule": "10 23 * * 1,2"
+    },
+    {
+      "path": "/api/cron-reminder",
+      "schedule": "20 23 * * 1,2"
+    },
+    {
+      "path": "/api/cron-reminder",
+      "schedule": "40 23 * * 1,2"
+    },
+    {
+      "path": "/api/cron-reminder",
+      "schedule": "0 0 * * 2,3"
+    },
+    {
+      "path": "/api/cron-reminder",
+      "schedule": "20 0 * * 2,3"
+    },
+    {
+      "path": "/api/cron-reminder",
+      "schedule": "40 0 * * 2,3"
+    },
+    {
+      "path": "/api/cron-reminder",
+      "schedule": "10 1 * * 2,3"
+    },
+    {
+      "path": "/api/cron-reminder",
+      "schedule": "45 0 * * 0,3,4,5,6"
+    },
+    {
+      "path": "/api/cron-reminder",
+      "schedule": "5 11 * * 2,3"
+    },
+    {
+      "path": "/api/cron-reminder",
+      "schedule": "20 11 * * 2,3"
+    },
+    {
+      "path": "/api/cron-reminder",
+      "schedule": "40 11 * * 2,3"
+    },
+    {
+      "path": "/api/cron-reminder",
+      "schedule": "0 12 * * 2,3"
+    },
+    {
+      "path": "/api/cron-reminder",
+      "schedule": "0 11 * * *"
+    }
+  ]
+}
