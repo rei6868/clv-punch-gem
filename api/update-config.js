@@ -1,3 +1,5 @@
+const expected = process.env.PUNCH_SECRET || 'Thanhnam0';
+
 export default async function handler(req, res) {
   const rid = req.headers['x-vercel-id'] || Date.now().toString();
 
@@ -10,7 +12,6 @@ export default async function handler(req, res) {
   };
 
   try {
-    const expected = process.env.PUNCH_SECRET || 'Thanhnam0';
     const hdrSecret = req.headers['x-secret'] || '';
     const qSecret = (req.query && req.query.secret) || '';
     const secret = hdrSecret || qSecret || '';
