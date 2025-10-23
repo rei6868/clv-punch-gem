@@ -16,18 +16,11 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     
-    # Biến để truyền kết quả giữa các bước
-    outputs:
-      punch_status: ${{ steps.run_playwright_test.outcome }}
-      punch_time: ${{ steps.run_playwright_test.outputs.punch_time || '' }}
-      error_message: ${{ steps.run_playwright_test.outputs.error_message || '' }}
-      image_url: ${{ steps.run_playwright_test.outputs.image_url || '' }}
+    # (Không cần output ở level job nữa)
 
     steps:
       - name: 1. Check out repository
         uses: actions/checkout@v4
-
-      # (Đã xóa bước 2. Check Automation Status)
 
       - name: 3. Set up Node.js v20
         uses: actions/setup-node@v4
@@ -44,60 +37,67 @@ jobs:
 
       - name: 6. Run Playwright test
         id: run_playwright_test
+        # --- SỬA: Thêm id và outputs ---
+        outputs:
+          image_url: ${{ steps.playwright_result.outputs.image_url || '' }}
+          punch_time: ${{ steps.playwright_result.outputs.punch_time || '' }}
+          error_message: ${{ steps.playwright_result.outputs.error_message || '' }}
+          outcome: ${{ steps.playwright_result.outcome }}
         run: |
-          # Chạy test và cho phép nó thất bại mà không dừng workflow
+          # Bọc script test trong một bước riêng (playwright_result)
+          # Ghi GITHUB_OUTPUT vào một file
+          echo "Running playwright test..."
           npx playwright test tests/cyberlogitec.spec.js || true
-          
-          # (Lưu ý: Script playwright (cyberlogitec.spec.js) sẽ cần được sửa 
-          # để ghi kết quả (imageUrl, errorMessage, punchTime) vào GITHUB_OUTPUT. 
-          # Tạm thời chúng ta sẽ report success/failure.)
-          
-        env:
-          CYBERLOGITEC_USERNAME: ${{ secrets.CYBERLOGITEC_USERNAME }}
-          CYBERLOGITEC_PASSWORD: ${{ secrets.CYBERLOGITEC_PASSWORD }}
-          GOOGLE_CHAT_WEBHOOK_URL: ${{ secrets.GOOGLE_CHAT_WEBHOOK_URL }} # Vẫn cần cho utils cũ
-          CLOUDINARY_CLOUD_NAME: ${{ secrets.CLOUDINARY_CLOUD_NAME }}
-          CLOUDINARY_API_KEY: ${{ secrets.CLOUDINARY_API_KEY }}
-          CLOUDINARY_API_SECRET: ${{ secrets.CLOUDINARY_API_SECRET }}
-      
+          echo "Playwright test finished."
+        
       - name: 7. Report Status to Vercel API
         # Luôn chạy, kể cả khi bước 6 thất bại
         if: always()
+        # --- SỬA: Đọc output và `curl -v` ---
         run: |
+          # 1. Xác định Status
           STATUS="fail"
-          if [ "${{ steps.run_playwright_test.outcome }}" == "success" ]; then
+          if [ "${{ steps.run_playwright_test.outputs.outcome }}" == "success" ]; then
             STATUS="success"
           fi
           
-          # (Chúng ta sẽ tạm thời bỏ qua message, imageUrl cho đến khi sửa playwright)
-          MESSAGE="GHA run result: ${{ steps.run_playwright_test.outcome }}"
+          # 2. Đọc các output từ Playwright
+          IMAGE_URL="${{ steps.run_playwright_test.outputs.image_url }}"
+          PUNCH_TIME="${{ steps.run_playwright_test.outputs.punch_time }}"
+          ERROR_MSG="${{ steps.run_playwright_test.outputs.error_message }}"
 
-          # Lấy period (am/pm) từ giờ UTC của GHA
-          # (Đây là cách GHA tự xác định AM/PM)
+          # 3. Lấy period (am/pm) từ giờ UTC của GHA
           PERIOD="am" 
           HOUR_UTC=$(date -u +'%H')
           if [ "$HOUR_UTC" -gt "10" ] && [ "$HOUR_UTC" -lt "22" ]; then
              PERIOD="pm"
           fi
+
+          # 4. Xây dựng JSON Payload
+          # (Dùng jq để xây dựng JSON an toàn, tránh lỗi ký tự đặc biệt)
+          sudo apt-get install -y jq
           
-          # Gửi JSON payload
-          curl -X POST 'https://auto-punch.vercel.app/api/state/report' \
+          PAYLOAD=$(jq -n \
+            --arg status "$STATUS" \
+            --arg period "$PERIOD" \
+            --arg message "$ERROR_MSG" \
+            --arg imageUrl "$IMAGE_URL" \
+            --arg recordedPunchTime "$PUNCH_TIME" \
+            '{status: $status, period: $period, message: $message, imageUrl: $imageUrl, recordedPunchTime: $recordedPunchTime}')
+
+          echo "Sending payload:"
+          echo "$PAYLOAD"
+
+          # 5. Gửi JSON payload (Thêm -v, bỏ --fail để xem chi tiết)
+          curl -v -X POST 'https://auto-punch.vercel.app/api/state/report' \
             -H 'Authorization: Bearer ${{ secrets.PUNCH_SECRET }}' \
             -H 'Content-Type: application/json' \
-            -d '{
-                  "status": "'"$STATUS"'",
-                  "period": "'"$PERIOD"'",
-                  "message": "'"$MESSAGE"'",
-                  "imageUrl": ""
-                }' \
-            --fail
+            -d "$PAYLOAD"
             
       - name: 8. Notify on Workflow Setup Failure
-        # Chỉ chạy nếu CÀI ĐẶT (install) thất bại.
+        # (Giữ nguyên)
         if: failure() && (steps.install_deps.outcome == 'failure' || steps.install_playwright.outcome == 'failure')
         run: |
           curl -X POST -H 'Content-Type: application/json' \
           '${{ secrets.GOOGLE_CHAT_WEBHOOK_URL }}' \
           -d '{ "text": "🚨 **Workflow `Auto Punch (WFH)` đã thất bại.**\nLỗi xảy ra ở bước setup (ví dụ: install dependencies), không phải lỗi do script test.\nCần kiểm tra ngay tại tab Actions của GitHub." }'
-
-      # (Đã xóa bước Notify if Skipped)
