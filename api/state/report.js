@@ -87,8 +87,10 @@ export default async function handler(req, res) {
     const periodText = period === 'am' ? 'Punch In (Sáng)' : 'Punch Out (Chiều)';
     
     if (status === 'success') {
+      // Sử dụng cải tiến từ main: kiểm tra NaN tốt hơn
       const recordedTime = body.recordedPunchTime ? new Date(body.recordedPunchTime) : null;
-      const isValidDate = recordedTime && !isNaN(recordedTime);
+      const recordedTimestamp = recordedTime?.getTime();
+      const isValidDate = Number.isFinite(recordedTimestamp);
       
       const subtitle = isValidDate
         ? `Ghi nhận lúc ${getVietnamDateKey(recordedTime)} (auto-time)`
@@ -101,6 +103,7 @@ export default async function handler(req, res) {
         icon: 'success',
       });
     } else {
+      // --- SỬA LỖI FONT (CHUYỂN SANG TIẾNG ANH) ---
       await sendChat({
         title: `🚨 ${periodText} Thất Bại (Auto)`,
         message: `<b>Error:</b> ${message || 'No details from GHA.'}`,
