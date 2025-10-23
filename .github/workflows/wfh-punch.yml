@@ -15,8 +15,6 @@ jobs:
     name: Run Punch In/Out Script
     runs-on: ubuntu-latest
     timeout-minutes: 5
-    
-    # (Không cần output ở level job nữa)
 
     steps:
       - name: 1. Check out repository
@@ -37,65 +35,61 @@ jobs:
 
       - name: 6. Run Playwright test
         id: run_playwright_test
-        # --- SỬA: Thêm id và outputs ---
-        outputs:
-          image_url: ${{ steps.playwright_result.outputs.image_url || '' }}
-          punch_time: ${{ steps.playwright_result.outputs.punch_time || '' }}
-          error_message: ${{ steps.playwright_result.outputs.error_message || '' }}
-          outcome: ${{ steps.playwright_result.outcome }}
         run: |
-          # Bọc script test trong một bước riêng (playwright_result)
-          # Ghi GITHUB_OUTPUT vào một file
-          echo "Running playwright test..."
+          # Chạy test và cho phép nó thất bại mà không dừng workflow
           npx playwright test tests/cyberlogitec.spec.js || true
-          echo "Playwright test finished."
-        
+        env:
+          CYBERLOGITEC_USERNAME: ${{ secrets.CYBERLOGITEC_USERNAME }}
+          CYBERLOGITEC_PASSWORD: ${{ secrets.CYBERLOGITEC_PASSWORD }}
+          # (Các biến env khác GHA sẽ tự động thêm vào)
+          CLOUDINARY_CLOUD_NAME: ${{ secrets.CLOUDINARY_CLOUD_NAME }}
+          CLOUDINARY_API_KEY: ${{ secrets.CLOUDINARY_API_KEY }}
+          CLOUDINARY_API_SECRET: ${{ secrets.CLOUDINARY_API_SECRET }}
+      
       - name: 7. Report Status to Vercel API
         # Luôn chạy, kể cả khi bước 6 thất bại
         if: always()
-        # --- SỬA: Đọc output và `curl -v` ---
         run: |
-          # 1. Xác định Status
           STATUS="fail"
-          if [ "${{ steps.run_playwright_test.outputs.outcome }}" == "success" ]; then
+          if [ "${{ steps.run_playwright_test.outcome }}" == "success" ]; then
             STATUS="success"
           fi
           
-          # 2. Đọc các output từ Playwright
+          # Đọc outputs từ bước 6
+          ERROR_MSG="${{ steps.run_playwright_test.outputs.error_message }}"
           IMAGE_URL="${{ steps.run_playwright_test.outputs.image_url }}"
           PUNCH_TIME="${{ steps.run_playwright_test.outputs.punch_time }}"
-          ERROR_MSG="${{ steps.run_playwright_test.outputs.error_message }}"
 
-          # 3. Lấy period (am/pm) từ giờ UTC của GHA
+          # Lấy period (am/pm) từ giờ UTC của GHA
           PERIOD="am" 
           HOUR_UTC=$(date -u +'%H')
           if [ "$HOUR_UTC" -gt "10" ] && [ "$HOUR_UTC" -lt "22" ]; then
              PERIOD="pm"
           fi
-
-          # 4. Xây dựng JSON Payload
-          # (Dùng jq để xây dựng JSON an toàn, tránh lỗi ký tự đặc biệt)
-          sudo apt-get install -y jq
           
-          PAYLOAD=$(jq -n \
-            --arg status "$STATUS" \
-            --arg period "$PERIOD" \
-            --arg message "$ERROR_MSG" \
-            --arg imageUrl "$IMAGE_URL" \
-            --arg recordedPunchTime "$PUNCH_TIME" \
-            '{status: $status, period: $period, message: $message, imageUrl: $imageUrl, recordedPunchTime: $recordedPunchTime}')
+          # Chuẩn bị JSON payload (phải escape dấu nháy)
+          JSON_PAYLOAD=$(printf '{
+                "status": "%s",
+                "period": "%s",
+                "message": "%s",
+                "imageUrl": "%s",
+                "recordedPunchTime": "%s"
+              }' \
+              "$STATUS" \
+              "$PERIOD" \
+              "$ERROR_MSG" \
+              "$IMAGE_URL" \
+              "$PUNCH_TIME")
 
-          echo "Sending payload:"
-          echo "$PAYLOAD"
-
-          # 5. Gửi JSON payload (Thêm -v, bỏ --fail để xem chi tiết)
-          curl -v -X POST 'https://auto-punch.vercel.app/api/state/report' \
-            -H 'Authorization: Bearer ${{ secrets.PUNCH_SECRET }}' \
-            -H 'Content-Type: application/json' \
-            -d "$PAYLOAD"
+          # Gửi JSON payload
+          curl -X POST 'https://auto-punch.vercel.app/api/state/report' \
+            -H "Authorization: Bearer ${{ secrets.PUNCH_SECRET }}" \
+            -H "Content-Type: application/json" \
+            -d "$JSON_PAYLOAD" \
+            --fail
             
       - name: 8. Notify on Workflow Setup Failure
-        # (Giữ nguyên)
+        # Chỉ chạy nếu CÀI ĐẶT (install) thất bại.
         if: failure() && (steps.install_deps.outcome == 'failure' || steps.install_playwright.outcome == 'failure')
         run: |
           curl -X POST -H 'Content-Type: application/json' \
