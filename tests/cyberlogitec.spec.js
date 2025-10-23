@@ -3,25 +3,36 @@
 // @ts-check
 const { test, expect } = require('@playwright/test');
 const fs = require('fs/promises');
-const core = require('@actions/core'); // Thêm GITHUB_OUTPUT helper
+// const core = require('@actions/core'); // <-- ĐÃ XÓA
 const { uploadToCloudinary } = require('../utils/cloudinary');
-// const { sendGoogleChatNotification } = require('../utils/googleChat'); // <-- ĐÃ XÓA
 require('dotenv').config();
 
 const { CYBERLOGITEC_USERNAME, CYBERLOGITEC_PASSWORD } = process.env;
 
-// (Giữ nguyên các hàm: ensurePageAlive, waitNetworkIdle)
+// --- Thêm hàm GITHUB_OUTPUT ---
 /**
- * Checks if the page is closed and throws a standardized error if it is.
- * @param {import('@playwright/test').Page} page
- * @param {string} label - A label to identify the context of the check.
+ * Ghi output cho GitHub Actions.
+ * @param {string} key
+ * @param {string} value
  */
+async function setOutput(key, value) {
+  const GITHUB_OUTPUT = process.env.GITHUB_OUTPUT;
+  if (GITHUB_OUTPUT) {
+    // Ghi vào file GITHUB_OUTPUT
+    await fs.appendFile(GITHUB_OUTPUT, `${key}=${value}\n`);
+    console.log(`Set GHA output: ${key}=${value}`);
+  } else {
+    console.log(`(Not in GHA) Output: ${key}=${value}`);
+  }
+}
+// --- Kết thúc thêm hàm ---
+
+// (Giữ nguyên các hàm: ensurePageAlive, waitNetworkIdle)
 function ensurePageAlive(page, label) {
   if (page.isClosed()) {
     throw new Error(`[RF_PAGE_CLOSED] during ${label}`);
   }
 }
-
 async function waitNetworkIdle(page, timeout = 45000, label = 'networkidle') {
   ensurePageAlive(page, `before ${label}`);
   await page.waitForLoadState('networkidle', { timeout });
@@ -29,51 +40,39 @@ async function waitNetworkIdle(page, timeout = 45000, label = 'networkidle') {
 
 
 test('Cyberlogitec Blueprint Punch In/Out', async ({ page }) => {
-  // Increased timeout for the entire test to handle potential network delays.
+  // (Giữ nguyên timeout)
   test.setTimeout(150000); 
-  
-  let punchTime = ''; // Variable to store the extracted punch-in/out time.
+  let punchTime = '';
 
   try {
-    // (Giữ nguyên Step 1: Navigate and Login)
+    // (Giữ nguyên Step 1, 2, 3)
     await test.step('Navigate to Login Page and Perform Login', async () => {
       await page.goto('https://blueprint.cyberlogitec.com.vn/', { waitUntil: 'networkidle', timeout: 60000 });
-
       if (!CYBERLOGITEC_USERNAME || !CYBERLOGITEC_PASSWORD) {
         throw new Error('Username or Password is not defined in .env file.');
       }
-
       await page.locator('#username').fill(CYBERLOGITEC_USERNAME);
       await page.locator('#password').fill(CYBERLOGITEC_PASSWORD);
       await page.locator('#submit-btn').click();
-
       await waitNetworkIdle(page, 45000, 'post-login');
       ensurePageAlive(page, 'post-login');
     });
-
-    // (Giữ nguyên Step 2: Navigate to Check In/Out Page via Sidebar)
     await test.step('Navigate to Check In/Out Page', async () => {
       async function runSidebarNav() {
         ensurePageAlive(page, 'nav-start');
-
         await page.locator('.mtos-btnMnu').click();
-
         const sidebar = page.locator('div.webix_sidebar');
         await expect(sidebar).toBeVisible({ timeout: 30000 });
-
         const attendanceMenu = sidebar.locator('div.webix_tree_item').filter({ hasText: /Attendance/i }).first();
         await attendanceMenu.scrollIntoViewIfNeeded();
         await expect(attendanceMenu).toBeVisible({ timeout: 20000 });
         await attendanceMenu.click();
-
         const checkInOutMenu = sidebar.locator('div.webix_tree_item').filter({ hasText: /Check In\/Out/i }).first();
         await checkInOutMenu.scrollIntoViewIfNeeded();
         await expect(checkInOutMenu).toBeVisible({ timeout: 20000 });
         await checkInOutMenu.click();
-
         await waitNetworkIdle(page, 30000, 'post-check-in-out');
       }
-
       try {
         await runSidebarNav();
       } catch (error) {
@@ -83,22 +82,17 @@ test('Cyberlogitec Blueprint Punch In/Out', async ({ page }) => {
           throw error;
         }
       }
-
       ensurePageAlive(page, 'post-sidebar-nav');
     });
-
-    // (Giữ nguyên Step 3: Perform Punch In/Out)
     await test.step('Perform Punch In/Out', async () => {
       const punchButton = page.getByRole('button', { name: /Punch In\/Out/i });
       await expect(punchButton).toBeVisible({ timeout: 20000 });
       await punchButton.click();
-
-      // A fixed delay mirroring the old stable script's logic to wait for the action to complete.
       await page.waitForTimeout(7000);
       ensurePageAlive(page, 'after-punch-delay');
     });
 
-    // (Step 4: Sửa lại để ghi output)
+    // (Step 4: Sửa lại để dùng setOutput)
     await test.step('Capture, Upload, and Notify', async () => {
       // (Giữ nguyên logic chụp ảnh)
       const leaveHeaderLocator = page.getByRole('columnheader', { name: /Leave Request/i });
@@ -106,7 +100,6 @@ test('Cyberlogitec Blueprint Punch In/Out', async ({ page }) => {
         .locator('div.webix_dtable[role="grid"]')
         .filter({ has: leaveHeaderLocator })
         .first();
-
       let tableVisible = false;
       try {
         await mainTable.scrollIntoViewIfNeeded();
@@ -116,7 +109,6 @@ test('Cyberlogitec Blueprint Punch In/Out', async ({ page }) => {
       } catch (_) {
         tableVisible = false;
       }
-
       const vnDateTime = new Date().toLocaleString('en-CA', {
         timeZone: 'Asia/Ho_Chi_Minh',
         hour12: false,
@@ -129,14 +121,12 @@ test('Cyberlogitec Blueprint Punch In/Out', async ({ page }) => {
       });
       punchTime = vnDateTime.replace(/[/:,\s]/g, '-');
       const screenshotPath = 'final_result.png';
-
       if (!tableVisible) {
         console.warn('[RF_SCREENSHOT_FAIL] Target grid hidden; capturing full page screenshot.');
         await page.screenshot({ path: screenshotPath, fullPage: true, timeout: 30000 });
       } else {
         const tableBox = await mainTable.boundingBox();
         const headerBox = await leaveHeaderLocator.boundingBox();
-
         if (!tableBox || !headerBox) {
           console.warn('[RF_SCREENSHOT_FAIL] Missing bounding box data; capturing full page screenshot.');
           await page.screenshot({ path: screenshotPath, fullPage: true, timeout: 30000 });
@@ -144,7 +134,6 @@ test('Cyberlogitec Blueprint Punch In/Out', async ({ page }) => {
           const paddingRight = 5;
           const clipWidth = Math.max(0, headerBox.x - tableBox.x - paddingRight);
           const clipHeight = Math.max(0, tableBox.height);
-
           if (clipWidth < 30 || clipHeight < 30) {
             console.warn('[RF_SCREENSHOT_FAIL] Clip dimensions too small; capturing full page screenshot instead.');
             await page.screenshot({ path: screenshotPath, fullPage: true, timeout: 30000 });
@@ -157,46 +146,35 @@ test('Cyberlogitec Blueprint Punch In/Out', async ({ page }) => {
           }
         }
       }
-
       let screenshotBuffer;
       try {
         screenshotBuffer = await fs.readFile(screenshotPath);
       } catch (fileError) {
         throw new Error(`[RF_SCREENSHOT_FAIL] Unable to read screenshot file: ${fileError.message}`);
       }
-
       if (!screenshotBuffer) {
         throw new Error('[RF_SCREENSHOT_FAIL] Screenshot buffer is empty.');
       }
-
       const imageUrl = await uploadToCloudinary(screenshotBuffer);
 
-      // --- BẮT ĐẦU SỬA ---
-      // Ghi output cho GitHub Actions
-      if (process.env.GITHUB_OUTPUT) {
-        core.setOutput('image_url', imageUrl);
-        core.setOutput('punch_time', punchTime);
-        core.setOutput('error_message', '');
-      }
-      // await sendGoogleChatNotification(true, imageUrl, '', punchTime); // <-- ĐÃ XÓA
+      // --- SỬA CÚ PHÁP GHI OUTPUT ---
+      await setOutput('image_url', imageUrl);
+      await setOutput('punch_time', punchTime);
+      await setOutput('error_message', '');
       // --- KẾT THÚC SỬA ---
     });
 
   } catch (error) {
     let errorMessage = error instanceof Error ? error.message : 'An unknown error occurred.';
     console.error(`Test failed: ${errorMessage}`);
-
     let failureImageUrl = '';
-
     if (!/\[RF_/.test(errorMessage)) {
       errorMessage = `[RF_FAILURE] ${errorMessage}`;
     }
-
     const pageClosed = page.isClosed();
     if (pageClosed && !/\[RF_PAGE_CLOSED]/.test(errorMessage)) {
       errorMessage = `${errorMessage} [RF_PAGE_CLOSED]`;
     }
-
     if (!pageClosed) {
       try {
         const errorScreenshotPath = 'error_screenshot.png';
@@ -208,19 +186,15 @@ test('Cyberlogitec Blueprint Punch In/Out', async ({ page }) => {
       }
     }
     
-    // --- BẮT ĐẦU SỬA ---
-    // Ghi output LỖI cho GitHub Actions
-    if (process.env.GITHUB_OUTPUT) {
-      core.setOutput('image_url', failureImageUrl);
-      core.setOutput('punch_time', '');
-      core.setOutput('error_message', errorMessage);
-    }
-    // await sendGoogleChatNotification(false, failureImageUrl, errorMessage, ''); // <-- ĐÃ XÓA
+    // --- SỬA CÚ PHÁP GHI OUTPUT ---
+    await setOutput('image_url', failureImageUrl);
+    await setOutput('punch_time', '');
+    await setOutput('error_message', errorMessage);
     // --- KẾT THÚC SỬA ---
     
-    // Re-throw the error to ensure the test is marked as failed.
     throw error;
   } finally {
+    // (Giữ nguyên finally)
     if (!page.isClosed()) {
       try {
         await page.close({ runBeforeUnload: false });
