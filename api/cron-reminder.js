@@ -1,8 +1,12 @@
 // File: api/cron-reminder.js
 
-const { getIsEnabled, getIsOff, getPeriodState, kv } = require('../lib/kv');
+// --- BẮT ĐẦU SỬA ---
+// Tách import: helpers từ lib, 'kv' trực tiếp từ @vercel/kv
+const { getIsEnabled, getIsOff, getPeriodState } = require('../lib/kv');
+const { kv } = require('@vercel/kv'); // <--- Sửa lỗi 'undefined'
 const { getVietnamDateKey, getVietnamTime, isWFHDay, getCurrentPeriod } = require('../lib/time');
 const { sendChat } = require('../lib/chat');
+// --- KẾT THÚC SỬA ---
 
 // Xác thực Cron Job
 const expected = process.env.CRON_SECRET || process.env.PUNCH_SECRET || 'Thanhnam0';

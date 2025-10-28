@@ -4,16 +4,14 @@ const { setPeriodState, getIsOff, getIsEnabled } = require('../../lib/kv');
 const { sendChat } = require('../../lib/chat');
 const { getVietnamDateKey, getCurrentPeriod, getVietnamTimestamp } = require('../../lib/time');
 
-// --- SỬA LOGIC XÁC THỰC ---
+// Xác thực (dùng Authorization: Bearer)
 const expected = process.env.CRON_SECRET || process.env.PUNCH_SECRET || 'Thanhnam0';
 
 function authenticate(req) {
-  // Cron job và GHA sẽ gửi secret qua header 'Authorization: Bearer <secret>'
   const auth = req.headers.authorization || '';
   const token = auth.replace(/^Bearer\s+/, '');
   if (token !== expected) throw new Error('invalid secret');
 }
-// --- KẾT THÚC SỬA ---
 
 export default async function handler(req, res) {
   const rid = req.headers['x-vercel-id'] || Date.now().toString();
@@ -25,16 +23,11 @@ export default async function handler(req, res) {
     return bad(405, 'method not allowed');
   }
   
-  // (Chúng ta sẽ nới lỏng content-type, GHA có thể gửi text/plain)
-  // if (!String(req.headers['content-type'] || '').includes('application/json')) {
-  //    return bad(415, 'unsupported content-type. Use application/json');
-  // }
-
   try {
     // 1. Xác thực
     authenticate(req);
 
-    // 2. Lấy dữ liệu (Phải parse body nếu GHA gửi text)
+    // 2. Lấy dữ liệu
     let body = req.body;
     if (typeof req.body === 'string' && req.body.length > 0) {
       try {
@@ -48,6 +41,7 @@ export default async function handler(req, res) {
       status, // 'success' | 'fail'
       message = '', 
       imageUrl = '',
+      recordedPunchTime = '',
     } = body;
 
     if (!status || (status !== 'success' && status !== 'fail')) {
@@ -80,35 +74,54 @@ export default async function handler(req, res) {
     }
 
     // 4. Lưu vào KV
-    const metadata = { message, imageUrl };
+    const metadata = { message, imageUrl, recordedPunchTime };
     await setPeriodState(dateKey, period, status, 'gha', metadata);
 
     // 5. Gửi thông báo Chat
     const periodText = period === 'am' ? 'Punch In (Sáng)' : 'Punch Out (Chiều)';
     
     if (status === 'success') {
-      // Sử dụng cải tiến từ main: kiểm tra NaN tốt hơn
-      const recordedTime = body.recordedPunchTime ? new Date(body.recordedPunchTime) : null;
-      const recordedTimestamp = recordedTime?.getTime();
-      const isValidDate = Number.isFinite(recordedTimestamp);
+      const recordedTime = recordedPunchTime ? new Date(recordedPunchTime) : null;
+      const isValidDate = recordedTime && !isNaN(recordedTime);
       
       const subtitle = isValidDate
         ? `Ghi nhận lúc ${getVietnamDateKey(recordedTime)} (auto-time)`
         : getVietnamTimestamp();
 
+      // --- BẮT ĐẦU SỬA (THÊM NÚT BẤM) ---
+      let linkButton = null;
+      if (imageUrl) {
+        linkButton = {
+          text: 'View Screenshot',
+          url: imageUrl,
+        };
+      }
+
       await sendChat({
         title: `✅ ${periodText} Thành Công (Auto)`,
         subtitle: subtitle,
-        imageUrl: imageUrl || undefined,
+        imageUrl: imageUrl || undefined, // Vẫn hiển thị ảnh
         icon: 'success',
+        linkButton: linkButton, // <-- Gửi nút bấm
       });
+      // --- KẾT THÚC SỬA ---
+
     } else {
-      // --- SỬA LỖI FONT (CHUYỂN SANG TIẾNG ANH) ---
+      // (Xử lý lỗi: cũng thêm nút bấm nếu có ảnh lỗi)
+      let linkButton = null;
+      if (imageUrl) {
+        linkButton = {
+          text: 'View Error Screenshot',
+          url: imageUrl,
+        };
+      }
+      
       await sendChat({
         title: `🚨 ${periodText} Thất Bại (Auto)`,
         message: `<b>Error:</b> ${message || 'No details from GHA.'}`,
         imageUrl: imageUrl || undefined,
         icon: 'failure',
+        linkButton: linkButton, // <-- Gửi nút bấm
       });
     }
 
