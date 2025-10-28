@@ -3,36 +3,24 @@
 // @ts-check
 const { test, expect } = require('@playwright/test');
 const fs = require('fs/promises');
-// const core = require('@actions/core'); // <-- ĐÃ XÓA
+const core = require('@actions/core');
 const { uploadToCloudinary } = require('../utils/cloudinary');
 require('dotenv').config();
 
 const { CYBERLOGITEC_USERNAME, CYBERLOGITEC_PASSWORD } = process.env;
 
-// --- Thêm hàm GITHUB_OUTPUT ---
-/**
- * Ghi output cho GitHub Actions.
- * @param {string} key
- * @param {string} value
- */
-async function setOutput(key, value) {
-  const GITHUB_OUTPUT = process.env.GITHUB_OUTPUT;
-  if (GITHUB_OUTPUT) {
-    // Ghi vào file GITHUB_OUTPUT
-    await fs.appendFile(GITHUB_OUTPUT, `${key}=${value}\n`);
-    console.log(`Set GHA output: ${key}=${value}`);
-  } else {
-    console.log(`(Not in GHA) Output: ${key}=${value}`);
-  }
-}
-// --- Kết thúc thêm hàm ---
-
 // (Giữ nguyên các hàm: ensurePageAlive, waitNetworkIdle)
+/**
+ * Checks if the page is closed and throws a standardized error if it is.
+ * @param {import('@playwright/test').Page} page
+ * @param {string} label - A label to identify the context of the check.
+ */
 function ensurePageAlive(page, label) {
   if (page.isClosed()) {
     throw new Error(`[RF_PAGE_CLOSED] during ${label}`);
   }
 }
+
 async function waitNetworkIdle(page, timeout = 45000, label = 'networkidle') {
   ensurePageAlive(page, `before ${label}`);
   await page.waitForLoadState('networkidle', { timeout });
@@ -40,14 +28,14 @@ async function waitNetworkIdle(page, timeout = 45000, label = 'networkidle') {
 
 
 test('Cyberlogitec Blueprint Punch In/Out', async ({ page }) => {
-  // (Giữ nguyên timeout)
   test.setTimeout(150000); 
+  
   let punchTime = '';
 
   try {
-    // (Giữ nguyên Step 1, 2, 3)
+    // (Giữ nguyên Step 1: Login)
     await test.step('Navigate to Login Page and Perform Login', async () => {
-      await page.goto('https://blueprint.cyberlogitec.com.vn/', { waitUntil: 'networkidle', timeout: 60000 });
+      await page.goto('[https://blueprint.cyberlogitec.com.vn/](https://blueprint.cyberlogitec.com.vn/)', { waitUntil: 'networkidle', timeout: 60000 });
       if (!CYBERLOGITEC_USERNAME || !CYBERLOGITEC_PASSWORD) {
         throw new Error('Username or Password is not defined in .env file.');
       }
@@ -57,6 +45,8 @@ test('Cyberlogitec Blueprint Punch In/Out', async ({ page }) => {
       await waitNetworkIdle(page, 45000, 'post-login');
       ensurePageAlive(page, 'post-login');
     });
+
+    // (Giữ nguyên Step 2: Navigate)
     await test.step('Navigate to Check In/Out Page', async () => {
       async function runSidebarNav() {
         ensurePageAlive(page, 'nav-start');
@@ -84,6 +74,8 @@ test('Cyberlogitec Blueprint Punch In/Out', async ({ page }) => {
       }
       ensurePageAlive(page, 'post-sidebar-nav');
     });
+
+    // (Giữ nguyên Step 3: Punch)
     await test.step('Perform Punch In/Out', async () => {
       const punchButton = page.getByRole('button', { name: /Punch In\/Out/i });
       await expect(punchButton).toBeVisible({ timeout: 20000 });
@@ -92,23 +84,12 @@ test('Cyberlogitec Blueprint Punch In/Out', async ({ page }) => {
       ensurePageAlive(page, 'after-punch-delay');
     });
 
-    // (Step 4: Sửa lại để dùng setOutput)
+    // --- BẮT ĐẦU SỬA (STEP 4) ---
+    // (Xóa toàn bộ logic clipping phức tạp)
     await test.step('Capture, Upload, and Notify', async () => {
-      // (Giữ nguyên logic chụp ảnh)
-      const leaveHeaderLocator = page.getByRole('columnheader', { name: /Leave Request/i });
-      const mainTable = page
-        .locator('div.webix_dtable[role="grid"]')
-        .filter({ has: leaveHeaderLocator })
-        .first();
-      let tableVisible = false;
-      try {
-        await mainTable.scrollIntoViewIfNeeded();
-        await mainTable.waitFor({ state: 'visible', timeout: 15000 });
-        await leaveHeaderLocator.waitFor({ state: 'visible', timeout: 10000 });
-        tableVisible = true;
-      } catch (_) {
-        tableVisible = false;
-      }
+      // Đợi cho bảng render (chờ 1 element bất kỳ trong bảng)
+      await page.locator('div.webix_dtable[role="grid"]').first().waitFor({ state: 'visible', timeout: 30000 });
+
       const vnDateTime = new Date().toLocaleString('en-CA', {
         timeZone: 'Asia/Ho_Chi_Minh',
         hour12: false,
@@ -121,63 +102,55 @@ test('Cyberlogitec Blueprint Punch In/Out', async ({ page }) => {
       });
       punchTime = vnDateTime.replace(/[/:,\s]/g, '-');
       const screenshotPath = 'final_result.png';
-      if (!tableVisible) {
-        console.warn('[RF_SCREENSHOT_FAIL] Target grid hidden; capturing full page screenshot.');
-        await page.screenshot({ path: screenshotPath, fullPage: true, timeout: 30000 });
-      } else {
-        const tableBox = await mainTable.boundingBox();
-        const headerBox = await leaveHeaderLocator.boundingBox();
-        if (!tableBox || !headerBox) {
-          console.warn('[RF_SCREENSHOT_FAIL] Missing bounding box data; capturing full page screenshot.');
-          await page.screenshot({ path: screenshotPath, fullPage: true, timeout: 30000 });
-        } else {
-          const paddingRight = 5;
-          const clipWidth = Math.max(0, headerBox.x - tableBox.x - paddingRight);
-          const clipHeight = Math.max(0, tableBox.height);
-          if (clipWidth < 30 || clipHeight < 30) {
-            console.warn('[RF_SCREENSHOT_FAIL] Clip dimensions too small; capturing full page screenshot instead.');
-            await page.screenshot({ path: screenshotPath, fullPage: true, timeout: 30000 });
-          } else {
-            await page.screenshot({
-              path: screenshotPath,
-              clip: { x: tableBox.x, y: tableBox.y, width: clipWidth, height: clipHeight },
-              timeout: 30000,
-            });
-          }
-        }
-      }
+
+      // Chụp ảnh toàn bộ trang
+      await page.screenshot({
+        path: screenshotPath,
+        fullPage: true, // <--- THAY ĐỔI CHÍNH
+        timeout: 30000,
+      });
+
       let screenshotBuffer;
       try {
         screenshotBuffer = await fs.readFile(screenshotPath);
       } catch (fileError) {
         throw new Error(`[RF_SCREENSHOT_FAIL] Unable to read screenshot file: ${fileError.message}`);
       }
+
       if (!screenshotBuffer) {
         throw new Error('[RF_SCREENSHOT_FAIL] Screenshot buffer is empty.');
       }
+
       const imageUrl = await uploadToCloudinary(screenshotBuffer);
 
-      // --- SỬA CÚ PHÁP GHI OUTPUT ---
-      await setOutput('image_url', imageUrl);
-      await setOutput('punch_time', punchTime);
-      await setOutput('error_message', '');
-      // --- KẾT THÚC SỬA ---
+      // Ghi output cho GitHub Actions
+      if (process.env.GITHUB_OUTPUT) {
+        core.setOutput('image_url', imageUrl);
+        core.setOutput('punch_time', punchTime);
+        core.setOutput('error_message', '');
+      }
     });
+    // --- KẾT THÚC SỬA ---
 
   } catch (error) {
     let errorMessage = error instanceof Error ? error.message : 'An unknown error occurred.';
     console.error(`Test failed: ${errorMessage}`);
+
     let failureImageUrl = '';
+
     if (!/\[RF_/.test(errorMessage)) {
       errorMessage = `[RF_FAILURE] ${errorMessage}`;
     }
+
     const pageClosed = page.isClosed();
     if (pageClosed && !/\[RF_PAGE_CLOSED]/.test(errorMessage)) {
       errorMessage = `${errorMessage} [RF_PAGE_CLOSED]`;
     }
+
     if (!pageClosed) {
       try {
         const errorScreenshotPath = 'error_screenshot.png';
+        // Chụp ảnh lỗi cũng là full page
         await page.screenshot({ path: errorScreenshotPath, fullPage: true, timeout: 30000 });
         const errorBuffer = await fs.readFile(errorScreenshotPath);
         failureImageUrl = await uploadToCloudinary(errorBuffer);
@@ -186,15 +159,16 @@ test('Cyberlogitec Blueprint Punch In/Out', async ({ page }) => {
       }
     }
     
-    // --- SỬA CÚ PHÁP GHI OUTPUT ---
-    await setOutput('image_url', failureImageUrl);
-    await setOutput('punch_time', '');
-    await setOutput('error_message', errorMessage);
-    // --- KẾT THÚC SỬA ---
+    // Ghi output LỖI cho GitHub Actions
+    if (process.env.GITHUB_OUTPUT) {
+      core.setOutput('image_url', failureImageUrl);
+      core.setOutput('punch_time', '');
+      core.setOutput('error_message', errorMessage);
+    }
     
+    // Re-throw the error to ensure the test is marked as failed.
     throw error;
   } finally {
-    // (Giữ nguyên finally)
     if (!page.isClosed()) {
       try {
         await page.close({ runBeforeUnload: false });
