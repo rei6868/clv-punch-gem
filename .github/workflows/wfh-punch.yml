@@ -27,7 +27,7 @@ jobs:
 
       - name: 4. Install dependencies
         id: install_deps
-        run: npm install
+        run: npm install # Sẽ chạy npm install (hoặc pnpm install nếu bạn đã sửa)
 
       - name: 5. Install Playwright browsers and dependencies
         id: install_playwright
@@ -36,8 +36,10 @@ jobs:
       - name: 6. Run Playwright test
         id: run_playwright_test
         run: |
-          # Chạy test và cho phép nó thất bại mà không dừng workflow
-          npx playwright test tests/cyberlogitec.spec.js || true
+          # --- BẮT ĐẦU SỬA ---
+          # Xóa '|| true' để GHA biết khi nào test fail
+          npx playwright test tests/cyberlogitec.spec.js
+          # --- KẾT THÚC SỬA ---
         env:
           CYBERLOGITEC_USERNAME: ${{ secrets.CYBERLOGITEC_USERNAME }}
           CYBERLOGITEC_PASSWORD: ${{ secrets.CYBERLOGITEC_PASSWORD }}
@@ -45,11 +47,11 @@ jobs:
           CLOUDINARY_API_KEY: ${{ secrets.CLOUDINARY_API_KEY }}
           CLOUDINARY_API_SECRET: ${{ secrets.CLOUDINARY_API_SECRET }}
       
-      # --- BẮT ĐẦU SỬA (STEP 7) ---
       - name: 7. Report Status to Vercel API
-        if: always()
+        if: always() # Luôn chạy, kể cả khi Step 6 fail
         run: |
           STATUS="fail"
+          # (Bây giờ outcome sẽ là 'failure' nếu test fail, 'success' nếu pass)
           if [ "${{ steps.run_playwright_test.outcome }}" == "success" ]; then
             STATUS="success"
           fi
@@ -59,15 +61,12 @@ jobs:
           IMAGE_URL="${{ steps.run_playwright_test.outputs.image_url }}"
           PUNCH_TIME="${{ steps.run_playwright_test.outputs.punch_time }}"
 
-          # Lấy period (am/pm) từ giờ UTC của GHA
           PERIOD="am" 
           HOUR_UTC=$(date -u +'%H')
           if [ "$HOUR_UTC" -gt "10" ] && [ "$HOUR_UTC" -lt "22" ]; then
              PERIOD="pm"
           fi
           
-          # (Sửa lỗi: Dùng 'cat <<EOF' để tạo JSON an toàn, tránh lỗi escape)
-          # (Lưu ý: Phải escape dấu $ trong biến GHA)
           JSON_PAYLOAD=$(cat <<EOF
           {
             "status": "$STATUS",
@@ -81,13 +80,11 @@ jobs:
           
           echo "Sending payload: $JSON_PAYLOAD"
 
-          # Gửi JSON payload
           curl -X POST 'https://auto-punch.vercel.app/api/state/report' \
             -H 'Authorization: Bearer ${{ secrets.PUNCH_SECRET }}' \
             -H 'Content-Type: application/json' \
             -d "$JSON_PAYLOAD" \
             --fail
-      # --- KẾT THÚC SỬA ---
             
       - name: 8. Notify on Workflow Setup Failure
         if: failure() && (steps.install_deps.outcome == 'failure' || steps.install_playwright.outcome == 'failure')

@@ -1,19 +1,41 @@
 // File: tests/cyberlogitec.spec.js
 
 // @ts-check
+const fs = require('fs');
+const fsp = require('fs/promises');
 const { test, expect } = require('@playwright/test');
-const fs = require('fs/promises');
-const core = require('@actions/core');
+// const core = require('@actions/core'); // <-- ĐÃ XÓA
 const { uploadToCloudinary } = require('../utils/cloudinary');
 require('dotenv').config();
 
 const { CYBERLOGITEC_USERNAME, CYBERLOGITEC_PASSWORD } = process.env;
 
-// (Giữ nguyên các hàm: ensurePageAlive, waitNetworkIdle)
+// --- BẮT ĐẦU SỬA (Thêm hàm setOutput) ---
+/**
+ * Ghi output cho GitHub Actions (nếu đang chạy trong GHA)
+ * @param {string} name - Tên output
+ * @param {string} value - Giá trị output
+ */
+function setGhaOutput(name, value) {
+  try {
+    if (process.env.GITHUB_OUTPUT) {
+      // Ghi vào file GITHUB_OUTPUT
+      fs.appendFileSync(process.env.GITHUB_OUTPUT, `${name}=${value}\n`);
+      console.log(`Successfully set GHA output: ${name}`);
+    } else {
+      console.log(`GHA output (local): ${name} = ${value}`);
+    }
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : String(error);
+    console.error(`Failed to write GHA output ${name}: ${msg}`);
+  }
+}
+// --- KẾT THÚC SỬA ---
+
 /**
  * Checks if the page is closed and throws a standardized error if it is.
  * @param {import('@playwright/test').Page} page
- * @param {string} label - A label to identify the context of the check.
+ * @param {string} label
  */
 function ensurePageAlive(page, label) {
   if (page.isClosed()) {
@@ -26,16 +48,18 @@ async function waitNetworkIdle(page, timeout = 45000, label = 'networkidle') {
   await page.waitForLoadState('networkidle', { timeout });
 }
 
-
 test('Cyberlogitec Blueprint Punch In/Out', async ({ page }) => {
-  test.setTimeout(150000); 
-  
+  test.setTimeout(150000);
+
   let punchTime = '';
 
   try {
     // (Giữ nguyên Step 1: Login)
     await test.step('Navigate to Login Page and Perform Login', async () => {
-      await page.goto('[https://blueprint.cyberlogitec.com.vn/](https://blueprint.cyberlogitec.com.vn/)', { waitUntil: 'networkidle', timeout: 60000 });
+      await page.goto('https://blueprint.cyberlogitec.com.vn/', {
+        waitUntil: 'networkidle',
+        timeout: 60000,
+      });
       if (!CYBERLOGITEC_USERNAME || !CYBERLOGITEC_PASSWORD) {
         throw new Error('Username or Password is not defined in .env file.');
       }
@@ -53,11 +77,17 @@ test('Cyberlogitec Blueprint Punch In/Out', async ({ page }) => {
         await page.locator('.mtos-btnMnu').click();
         const sidebar = page.locator('div.webix_sidebar');
         await expect(sidebar).toBeVisible({ timeout: 30000 });
-        const attendanceMenu = sidebar.locator('div.webix_tree_item').filter({ hasText: /Attendance/i }).first();
+        const attendanceMenu = sidebar
+          .locator('div.webix_tree_item')
+          .filter({ hasText: /Attendance/i })
+          .first();
         await attendanceMenu.scrollIntoViewIfNeeded();
         await expect(attendanceMenu).toBeVisible({ timeout: 20000 });
         await attendanceMenu.click();
-        const checkInOutMenu = sidebar.locator('div.webix_tree_item').filter({ hasText: /Check In\/Out/i }).first();
+        const checkInOutMenu = sidebar
+          .locator('div.webix_tree_item')
+          .filter({ hasText: /Check In\/Out/i })
+          .first();
         await checkInOutMenu.scrollIntoViewIfNeeded();
         await expect(checkInOutMenu).toBeVisible({ timeout: 20000 });
         await checkInOutMenu.click();
@@ -66,7 +96,10 @@ test('Cyberlogitec Blueprint Punch In/Out', async ({ page }) => {
       try {
         await runSidebarNav();
       } catch (error) {
-        if (error instanceof Error && (error.message.includes('Timeout') || error.message.includes('not visible'))) {
+        if (
+          error instanceof Error &&
+          (error.message.includes('Timeout') || error.message.includes('not visible'))
+        ) {
           await runSidebarNav();
         } else {
           throw error;
@@ -84,11 +117,12 @@ test('Cyberlogitec Blueprint Punch In/Out', async ({ page }) => {
       ensurePageAlive(page, 'after-punch-delay');
     });
 
-    // --- BẮT ĐẦU SỬA (STEP 4) ---
-    // (Xóa toàn bộ logic clipping phức tạp)
+    // (Giữ nguyên Step 4: Screenshot)
     await test.step('Capture, Upload, and Notify', async () => {
-      // Đợi cho bảng render (chờ 1 element bất kỳ trong bảng)
-      await page.locator('div.webix_dtable[role="grid"]').first().waitFor({ state: 'visible', timeout: 30000 });
+      await page
+        .locator('div.webix_dtable[role="grid"]')
+        .first()
+        .waitFor({ state: 'visible', timeout: 30000 });
 
       const vnDateTime = new Date().toLocaleString('en-CA', {
         timeZone: 'Asia/Ho_Chi_Minh',
@@ -103,18 +137,18 @@ test('Cyberlogitec Blueprint Punch In/Out', async ({ page }) => {
       punchTime = vnDateTime.replace(/[/:,\s]/g, '-');
       const screenshotPath = 'final_result.png';
 
-      // Chụp ảnh toàn bộ trang
       await page.screenshot({
         path: screenshotPath,
-        fullPage: true, // <--- THAY ĐỔI CHÍNH
+        fullPage: true,
         timeout: 30000,
       });
 
       let screenshotBuffer;
       try {
-        screenshotBuffer = await fs.readFile(screenshotPath);
+        screenshotBuffer = await fsp.readFile(screenshotPath);
       } catch (fileError) {
-        throw new Error(`[RF_SCREENSHOT_FAIL] Unable to read screenshot file: ${fileError.message}`);
+        const msg = fileError instanceof Error ? fileError.message : String(fileError);
+        throw new Error(`[RF_SCREENSHOT_FAIL] Unable to read screenshot file: ${msg}`);
       }
 
       if (!screenshotBuffer) {
@@ -123,15 +157,10 @@ test('Cyberlogitec Blueprint Punch In/Out', async ({ page }) => {
 
       const imageUrl = await uploadToCloudinary(screenshotBuffer);
 
-      // Ghi output cho GitHub Actions
-      if (process.env.GITHUB_OUTPUT) {
-        core.setOutput('image_url', imageUrl);
-        core.setOutput('punch_time', punchTime);
-        core.setOutput('error_message', '');
-      }
+      setGhaOutput('image_url', imageUrl);
+      setGhaOutput('punch_time', punchTime);
+      setGhaOutput('error_message', '');
     });
-    // --- KẾT THÚC SỬA ---
-
   } catch (error) {
     let errorMessage = error instanceof Error ? error.message : 'An unknown error occurred.';
     console.error(`Test failed: ${errorMessage}`);
@@ -150,31 +179,32 @@ test('Cyberlogitec Blueprint Punch In/Out', async ({ page }) => {
     if (!pageClosed) {
       try {
         const errorScreenshotPath = 'error_screenshot.png';
-        // Chụp ảnh lỗi cũng là full page
-        await page.screenshot({ path: errorScreenshotPath, fullPage: true, timeout: 30000 });
-        const errorBuffer = await fs.readFile(errorScreenshotPath);
+        await page.screenshot({
+          path: errorScreenshotPath,
+          fullPage: true,
+          timeout: 30000,
+        });
+        const errorBuffer = await fsp.readFile(errorScreenshotPath);
         failureImageUrl = await uploadToCloudinary(errorBuffer);
       } catch (screenshotError) {
-        console.error(`Failed to take or upload failure screenshot: ${screenshotError.message}`);
+        const msg =
+          screenshotError instanceof Error ? screenshotError.message : String(screenshotError);
+        console.error(`Failed to take or upload failure screenshot: ${msg}`);
       }
     }
-    
-    // Ghi output LỖI cho GitHub Actions
-    if (process.env.GITHUB_OUTPUT) {
-      core.setOutput('image_url', failureImageUrl);
-      core.setOutput('punch_time', '');
-      core.setOutput('error_message', errorMessage);
-    }
-    
-    // Re-throw the error to ensure the test is marked as failed.
+
+    setGhaOutput('image_url', failureImageUrl);
+    setGhaOutput('punch_time', '');
+    setGhaOutput('error_message', errorMessage);
+
     throw error;
   } finally {
     if (!page.isClosed()) {
       try {
         await page.close({ runBeforeUnload: false });
       } catch (closeError) {
-        const message = closeError instanceof Error ? closeError.message : String(closeError);
-        console.error(`Failed to close page during cleanup: ${message}`);
+        const msg = closeError instanceof Error ? closeError.message : String(closeError);
+        console.error(`Failed to close page during cleanup: ${msg}`);
       }
     }
   }
