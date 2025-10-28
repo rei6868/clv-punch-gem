@@ -2,31 +2,35 @@
 
 // @ts-check
 const { test, expect } = require('@playwright/test');
-const fs = require('fs');
-const fsp = require('fs/promises');
+const fs = require('fs'); // <-- Đổi từ 'fs/promises' sang 'fs'
 const { uploadToCloudinary } = require('../utils/cloudinary');
 require('dotenv').config();
 
 const { CYBERLOGITEC_USERNAME, CYBERLOGITEC_PASSWORD } = process.env;
 
+// --- BẮT ĐẦU SỬA (Hàm setGhaOutput) ---
 /**
- * Ghi output cho GitHub Actions (nếu đang chạy trong GHA)
+ * Ghi output cho GitHub Actions (phiên bản an toàn, hỗ trợ multi-line)
  * @param {string} name - Tên output
  * @param {string} value - Giá trị output
  */
 function setGhaOutput(name, value) {
   try {
     if (process.env.GITHUB_OUTPUT) {
-      fs.appendFileSync(process.env.GITHUB_OUTPUT, `${name}=${value}\n`);
-      console.log(`Successfully set GHA output: ${name}`);
+      // Dùng delimiter để bọc giá trị, cho phép ký tự đặc biệt
+      const delimiter = `gha_delimiter_${Date.now()}`;
+      const outputString = `${name}<<${delimiter}\n${value || ''}\n${delimiter}\n`;
+      fs.appendFileSync(process.env.GITHUB_OUTPUT, outputString);
+      console.log(`Successfully set GHA output (multi-line): ${name}`);
     } else {
       console.log(`GHA output (local): ${name} = ${value}`);
     }
   } catch (error) {
-    const msg = error instanceof Error ? error.message : String(error);
-    console.error(`Failed to write GHA output ${name}: ${msg}`);
+    console.error(`Failed to write GHA output ${name}: ${error.message}`);
   }
 }
+// --- KẾT THÚC SỬA ---
+
 
 // (Giữ nguyên các hàm: ensurePageAlive, waitNetworkIdle)
 function ensurePageAlive(page, label) {
@@ -88,40 +92,36 @@ test('Cyberlogitec Blueprint Punch In/Out', async ({ page }) => {
       ensurePageAlive(page, 'post-sidebar-nav');
     });
 
-    // --- BẮT ĐẦU SỬA (STEP 3) ---
+    // (Giữ nguyên Step 3: Punch - đã fix ở Prompt 42)
     await test.step('Perform Punch In/Out', async () => {
       const punchButton = page.getByRole('button', { name: /Punch In\/Out/i });
       await expect(punchButton).toBeVisible({ timeout: 20000 });
       await punchButton.click();
-      
-      // THAY ĐỔI: Chờ mạng ổn định thay vì chờ 7 giây
       await waitNetworkIdle(page, 30000, 'after-punch-click');
-      // Thêm 1 giây đệm cho UI render
       await page.waitForTimeout(1000); 
-      
       ensurePageAlive(page, 'after-punch-delay');
     });
-    // --- KẾT THÚC SỬA (STEP 3) ---
 
     // --- BẮT ĐẦU SỬA (STEP 4) ---
     await test.step('Capture, Upload, and Notify', async () => {
-      // 1. Tìm bảng
-      const tableLocator = page.locator('div.webix_dtable[role="grid"]').first();
+      // 1. THAY ĐỔI: Dùng lại locator đúng (lấy tiêu đề 'Leave Request' để lọc)
+      const leaveHeaderLocator = page.getByRole('columnheader', { name: /Leave Request/i });
+      const tableLocator = page
+        .locator('div.webix_dtable[role="grid"]')
+        .filter({ has: leaveHeaderLocator })
+        .first();
+      
+      // Chờ cho bảng (đúng) render
       await tableLocator.waitFor({ state: 'visible', timeout: 30000 });
 
-      // 2. THAY ĐỔI: Tìm khung cuộn bên trong bảng và cuộn xuống dưới cùng
+      // 2. Cuộn bảng (như cũ)
       try {
         const scrollableBody = tableLocator.locator('div.webix_ss_body').first();
-        await scrollableBody.evaluate(node => {
-          if (node) {
-            node.scrollTop = node.scrollHeight;
-          }
-        });
-        await page.waitForTimeout(1000); // Chờ 1 giây cho scroll animation
+        await scrollableBody.evaluate(node => node.scrollTop = node.scrollHeight);
+        await page.waitForTimeout(1000); 
         console.log('Successfully scrolled internal table to bottom.');
       } catch (scrollError) {
-        const msg = scrollError instanceof Error ? scrollError.message : String(scrollError);
-        console.warn(`Could not scroll internal table: ${msg}. Proceeding anyway.`);
+        console.warn(`Could not scroll internal table: ${scrollError.message}. Proceeding anyway.`);
       }
 
       // 3. Lấy thời gian
@@ -148,10 +148,9 @@ test('Cyberlogitec Blueprint Punch In/Out', async ({ page }) => {
       // 5. Upload và Ghi Output (như cũ)
       let screenshotBuffer;
       try {
-        screenshotBuffer = await fsp.readFile(screenshotPath);
+        screenshotBuffer = await fs.readFileSync(screenshotPath); // Dùng readFileSync (đồng bộ)
       } catch (fileError) {
-        const msg = fileError instanceof Error ? fileError.message : String(fileError);
-        throw new Error(`[RF_SCREENSHOT_FAIL] Unable to read screenshot file: ${msg}`);
+        throw new Error(`[RF_SCREENSHOT_FAIL] Unable to read screenshot file: ${fileError.message}`);
       }
       if (!screenshotBuffer) {
         throw new Error('[RF_SCREENSHOT_FAIL] Screenshot buffer is empty.');
@@ -183,11 +182,10 @@ test('Cyberlogitec Blueprint Punch In/Out', async ({ page }) => {
       try {
         const errorScreenshotPath = 'error_screenshot.png';
         await page.screenshot({ path: errorScreenshotPath, fullPage: true, timeout: 30000 });
-        const errorBuffer = await fsp.readFile(errorScreenshotPath);
+        const errorBuffer = await fs.readFileSync(errorScreenshotPath); // Dùng readFileSync (đồng bộ)
         failureImageUrl = await uploadToCloudinary(errorBuffer);
       } catch (screenshotError) {
-        const msg = screenshotError instanceof Error ? screenshotError.message : String(screenshotError);
-        console.error(`Failed to take or upload failure screenshot: ${msg}`);
+        console.error(`Failed to take or upload failure screenshot: ${screenshotError.message}`);
       }
     }
     
