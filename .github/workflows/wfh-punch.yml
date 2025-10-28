@@ -15,7 +15,7 @@ jobs:
     name: Run Punch In/Out Script
     runs-on: ubuntu-latest
     timeout-minutes: 5
-
+    
     steps:
       - name: 1. Check out repository
         uses: actions/checkout@v4
@@ -41,13 +41,12 @@ jobs:
         env:
           CYBERLOGITEC_USERNAME: ${{ secrets.CYBERLOGITEC_USERNAME }}
           CYBERLOGITEC_PASSWORD: ${{ secrets.CYBERLOGITEC_PASSWORD }}
-          # (Các biến env khác GHA sẽ tự động thêm vào)
           CLOUDINARY_CLOUD_NAME: ${{ secrets.CLOUDINARY_CLOUD_NAME }}
           CLOUDINARY_API_KEY: ${{ secrets.CLOUDINARY_API_KEY }}
           CLOUDINARY_API_SECRET: ${{ secrets.CLOUDINARY_API_SECRET }}
       
+      # --- BẮT ĐẦU SỬA (STEP 7) ---
       - name: 7. Report Status to Vercel API
-        # Luôn chạy, kể cả khi bước 6 thất bại
         if: always()
         run: |
           STATUS="fail"
@@ -67,29 +66,30 @@ jobs:
              PERIOD="pm"
           fi
           
-          # Chuẩn bị JSON payload (phải escape dấu nháy)
-          JSON_PAYLOAD=$(printf '{
-                "status": "%s",
-                "period": "%s",
-                "message": "%s",
-                "imageUrl": "%s",
-                "recordedPunchTime": "%s"
-              }' \
-              "$STATUS" \
-              "$PERIOD" \
-              "$ERROR_MSG" \
-              "$IMAGE_URL" \
-              "$PUNCH_TIME")
+          # (Sửa lỗi: Dùng 'cat <<EOF' để tạo JSON an toàn, tránh lỗi escape)
+          # (Lưu ý: Phải escape dấu $ trong biến GHA)
+          JSON_PAYLOAD=$(cat <<EOF
+          {
+            "status": "$STATUS",
+            "period": "$PERIOD",
+            "message": "${ERROR_MSG//\"/\\\"}",
+            "imageUrl": "${IMAGE_URL//\"/\\\"}",
+            "recordedPunchTime": "${PUNCH_TIME//\"/\\\"}"
+          }
+          EOF
+          )
+          
+          echo "Sending payload: $JSON_PAYLOAD"
 
           # Gửi JSON payload
           curl -X POST 'https://auto-punch.vercel.app/api/state/report' \
-            -H "Authorization: Bearer ${{ secrets.PUNCH_SECRET }}" \
-            -H "Content-Type: application/json" \
+            -H 'Authorization: Bearer ${{ secrets.PUNCH_SECRET }}' \
+            -H 'Content-Type: application/json' \
             -d "$JSON_PAYLOAD" \
             --fail
+      # --- KẾT THÚC SỬA ---
             
       - name: 8. Notify on Workflow Setup Failure
-        # Chỉ chạy nếu CÀI ĐẶT (install) thất bại.
         if: failure() && (steps.install_deps.outcome == 'failure' || steps.install_playwright.outcome == 'failure')
         run: |
           curl -X POST -H 'Content-Type: application/json' \
