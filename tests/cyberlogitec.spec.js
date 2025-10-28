@@ -1,16 +1,14 @@
 // File: tests/cyberlogitec.spec.js
 
 // @ts-check
+const { test, expect } = require('@playwright/test');
 const fs = require('fs');
 const fsp = require('fs/promises');
-const { test, expect } = require('@playwright/test');
-// const core = require('@actions/core'); // <-- ĐÃ XÓA
 const { uploadToCloudinary } = require('../utils/cloudinary');
 require('dotenv').config();
 
 const { CYBERLOGITEC_USERNAME, CYBERLOGITEC_PASSWORD } = process.env;
 
-// --- BẮT ĐẦU SỬA (Thêm hàm setOutput) ---
 /**
  * Ghi output cho GitHub Actions (nếu đang chạy trong GHA)
  * @param {string} name - Tên output
@@ -19,7 +17,6 @@ const { CYBERLOGITEC_USERNAME, CYBERLOGITEC_PASSWORD } = process.env;
 function setGhaOutput(name, value) {
   try {
     if (process.env.GITHUB_OUTPUT) {
-      // Ghi vào file GITHUB_OUTPUT
       fs.appendFileSync(process.env.GITHUB_OUTPUT, `${name}=${value}\n`);
       console.log(`Successfully set GHA output: ${name}`);
     } else {
@@ -30,36 +27,28 @@ function setGhaOutput(name, value) {
     console.error(`Failed to write GHA output ${name}: ${msg}`);
   }
 }
-// --- KẾT THÚC SỬA ---
 
-/**
- * Checks if the page is closed and throws a standardized error if it is.
- * @param {import('@playwright/test').Page} page
- * @param {string} label
- */
+// (Giữ nguyên các hàm: ensurePageAlive, waitNetworkIdle)
 function ensurePageAlive(page, label) {
   if (page.isClosed()) {
     throw new Error(`[RF_PAGE_CLOSED] during ${label}`);
   }
 }
-
 async function waitNetworkIdle(page, timeout = 45000, label = 'networkidle') {
   ensurePageAlive(page, `before ${label}`);
   await page.waitForLoadState('networkidle', { timeout });
 }
 
-test('Cyberlogitec Blueprint Punch In/Out', async ({ page }) => {
-  test.setTimeout(150000);
 
+test('Cyberlogitec Blueprint Punch In/Out', async ({ page }) => {
+  test.setTimeout(150000); 
+  
   let punchTime = '';
 
   try {
     // (Giữ nguyên Step 1: Login)
     await test.step('Navigate to Login Page and Perform Login', async () => {
-      await page.goto('https://blueprint.cyberlogitec.com.vn/', {
-        waitUntil: 'networkidle',
-        timeout: 60000,
-      });
+      await page.goto('https://blueprint.cyberlogitec.com.vn/', { waitUntil: 'networkidle', timeout: 60000 });
       if (!CYBERLOGITEC_USERNAME || !CYBERLOGITEC_PASSWORD) {
         throw new Error('Username or Password is not defined in .env file.');
       }
@@ -77,17 +66,11 @@ test('Cyberlogitec Blueprint Punch In/Out', async ({ page }) => {
         await page.locator('.mtos-btnMnu').click();
         const sidebar = page.locator('div.webix_sidebar');
         await expect(sidebar).toBeVisible({ timeout: 30000 });
-        const attendanceMenu = sidebar
-          .locator('div.webix_tree_item')
-          .filter({ hasText: /Attendance/i })
-          .first();
+        const attendanceMenu = sidebar.locator('div.webix_tree_item').filter({ hasText: /Attendance/i }).first();
         await attendanceMenu.scrollIntoViewIfNeeded();
         await expect(attendanceMenu).toBeVisible({ timeout: 20000 });
         await attendanceMenu.click();
-        const checkInOutMenu = sidebar
-          .locator('div.webix_tree_item')
-          .filter({ hasText: /Check In\/Out/i })
-          .first();
+        const checkInOutMenu = sidebar.locator('div.webix_tree_item').filter({ hasText: /Check In\/Out/i }).first();
         await checkInOutMenu.scrollIntoViewIfNeeded();
         await expect(checkInOutMenu).toBeVisible({ timeout: 20000 });
         await checkInOutMenu.click();
@@ -96,10 +79,7 @@ test('Cyberlogitec Blueprint Punch In/Out', async ({ page }) => {
       try {
         await runSidebarNav();
       } catch (error) {
-        if (
-          error instanceof Error &&
-          (error.message.includes('Timeout') || error.message.includes('not visible'))
-        ) {
+        if (error instanceof Error && (error.message.includes('Timeout') || error.message.includes('not visible'))) {
           await runSidebarNav();
         } else {
           throw error;
@@ -108,22 +88,43 @@ test('Cyberlogitec Blueprint Punch In/Out', async ({ page }) => {
       ensurePageAlive(page, 'post-sidebar-nav');
     });
 
-    // (Giữ nguyên Step 3: Punch)
+    // --- BẮT ĐẦU SỬA (STEP 3) ---
     await test.step('Perform Punch In/Out', async () => {
       const punchButton = page.getByRole('button', { name: /Punch In\/Out/i });
       await expect(punchButton).toBeVisible({ timeout: 20000 });
       await punchButton.click();
-      await page.waitForTimeout(7000);
+      
+      // THAY ĐỔI: Chờ mạng ổn định thay vì chờ 7 giây
+      await waitNetworkIdle(page, 30000, 'after-punch-click');
+      // Thêm 1 giây đệm cho UI render
+      await page.waitForTimeout(1000); 
+      
       ensurePageAlive(page, 'after-punch-delay');
     });
+    // --- KẾT THÚC SỬA (STEP 3) ---
 
-    // (Giữ nguyên Step 4: Screenshot)
+    // --- BẮT ĐẦU SỬA (STEP 4) ---
     await test.step('Capture, Upload, and Notify', async () => {
-      await page
-        .locator('div.webix_dtable[role="grid"]')
-        .first()
-        .waitFor({ state: 'visible', timeout: 30000 });
+      // 1. Tìm bảng
+      const tableLocator = page.locator('div.webix_dtable[role="grid"]').first();
+      await tableLocator.waitFor({ state: 'visible', timeout: 30000 });
 
+      // 2. THAY ĐỔI: Tìm khung cuộn bên trong bảng và cuộn xuống dưới cùng
+      try {
+        const scrollableBody = tableLocator.locator('div.webix_ss_body').first();
+        await scrollableBody.evaluate(node => {
+          if (node) {
+            node.scrollTop = node.scrollHeight;
+          }
+        });
+        await page.waitForTimeout(1000); // Chờ 1 giây cho scroll animation
+        console.log('Successfully scrolled internal table to bottom.');
+      } catch (scrollError) {
+        const msg = scrollError instanceof Error ? scrollError.message : String(scrollError);
+        console.warn(`Could not scroll internal table: ${msg}. Proceeding anyway.`);
+      }
+
+      // 3. Lấy thời gian
       const vnDateTime = new Date().toLocaleString('en-CA', {
         timeZone: 'Asia/Ho_Chi_Minh',
         hour12: false,
@@ -137,12 +138,14 @@ test('Cyberlogitec Blueprint Punch In/Out', async ({ page }) => {
       punchTime = vnDateTime.replace(/[/:,\s]/g, '-');
       const screenshotPath = 'final_result.png';
 
+      // 4. Chụp ảnh (vẫn full page)
       await page.screenshot({
         path: screenshotPath,
-        fullPage: true,
+        fullPage: true, 
         timeout: 30000,
       });
 
+      // 5. Upload và Ghi Output (như cũ)
       let screenshotBuffer;
       try {
         screenshotBuffer = await fsp.readFile(screenshotPath);
@@ -150,17 +153,17 @@ test('Cyberlogitec Blueprint Punch In/Out', async ({ page }) => {
         const msg = fileError instanceof Error ? fileError.message : String(fileError);
         throw new Error(`[RF_SCREENSHOT_FAIL] Unable to read screenshot file: ${msg}`);
       }
-
       if (!screenshotBuffer) {
         throw new Error('[RF_SCREENSHOT_FAIL] Screenshot buffer is empty.');
       }
-
       const imageUrl = await uploadToCloudinary(screenshotBuffer);
 
       setGhaOutput('image_url', imageUrl);
       setGhaOutput('punch_time', punchTime);
       setGhaOutput('error_message', '');
     });
+    // --- KẾT THÚC SỬA (STEP 4) ---
+
   } catch (error) {
     let errorMessage = error instanceof Error ? error.message : 'An unknown error occurred.';
     console.error(`Test failed: ${errorMessage}`);
@@ -179,32 +182,28 @@ test('Cyberlogitec Blueprint Punch In/Out', async ({ page }) => {
     if (!pageClosed) {
       try {
         const errorScreenshotPath = 'error_screenshot.png';
-        await page.screenshot({
-          path: errorScreenshotPath,
-          fullPage: true,
-          timeout: 30000,
-        });
+        await page.screenshot({ path: errorScreenshotPath, fullPage: true, timeout: 30000 });
         const errorBuffer = await fsp.readFile(errorScreenshotPath);
         failureImageUrl = await uploadToCloudinary(errorBuffer);
       } catch (screenshotError) {
-        const msg =
-          screenshotError instanceof Error ? screenshotError.message : String(screenshotError);
+        const msg = screenshotError instanceof Error ? screenshotError.message : String(screenshotError);
         console.error(`Failed to take or upload failure screenshot: ${msg}`);
       }
     }
-
+    
     setGhaOutput('image_url', failureImageUrl);
     setGhaOutput('punch_time', '');
     setGhaOutput('error_message', errorMessage);
-
+    
+    // Re-throw the error to ensure the test is marked as failed.
     throw error;
   } finally {
     if (!page.isClosed()) {
       try {
         await page.close({ runBeforeUnload: false });
       } catch (closeError) {
-        const msg = closeError instanceof Error ? closeError.message : String(closeError);
-        console.error(`Failed to close page during cleanup: ${msg}`);
+        const message = closeError instanceof Error ? closeError.message : String(closeError);
+        console.error(`Failed to close page during cleanup: ${message}`);
       }
     }
   }
