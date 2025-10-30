@@ -61,6 +61,7 @@ jobs:
           IMAGE_URL="${{ steps.run_playwright_test.outputs.image_url }}"
           PUNCH_TIME="${{ steps.run_playwright_test.outputs.punch_time }}"
 
+
           PERIOD="am" 
           HOUR_UTC=$(date -u +'%H')
           if [ "$HOUR_UTC" -gt "10" ] && [ "$HOUR_UTC" -lt "22" ]; then
@@ -79,6 +80,7 @@ jobs:
           )
           
           echo "Sending payload: $JSON_PAYLOAD"
+
 
           curl -X POST 'https://auto-punch.vercel.app/api/state/report' \
             -H 'Authorization: Bearer ${{ secrets.PUNCH_SECRET }}' \
