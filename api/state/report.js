@@ -97,12 +97,16 @@ export default async function handler(req, res) {
         };
       }
 
+      // --- BẮT ĐẦU SỬA (CHỌ N ICON) ---
+      const successIcon = period === 'am' ? 'success_am' : 'success_pm';
+      // --- KẾT THÚC SỬA ---
+
       await sendChat({
         title: `✅ ${periodText} Thành Công (Auto)`,
         subtitle: subtitle,
-        imageUrl: imageUrl || undefined, // Vẫn hiển thị ảnh
-        icon: 'success',
-        linkButton: linkButton, // <-- Gửi nút bấm
+        imageUrl: imageUrl || undefined, 
+        icon: successIcon, // <-- Dùng icon đã chọn
+        linkButton: linkButton,
       });
       // --- KẾT THÚC SỬA ---
 
