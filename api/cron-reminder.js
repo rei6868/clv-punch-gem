@@ -1,14 +1,11 @@
 // File: api/cron-reminder.js
 
-// --- BẮT ĐẦU SỬA ---
-// Tách import: helpers từ lib, 'kv' trực tiếp từ @vercel/kv
 const { getIsEnabled, getIsOff, getPeriodState } = require('../lib/kv');
-const { kv } = require('@vercel/kv'); // <--- Sửa lỗi 'undefined'
+const { kv } = require('@vercel/kv');
 const { getVietnamDateKey, getVietnamTime, isWFHDay, getCurrentPeriod } = require('../lib/time');
 const { sendChat } = require('../lib/chat');
-// --- KẾT THÚC SỬA ---
 
-// Xác thực Cron Job
+// (Giữ nguyên hàm authenticate, sendNotificationWithLock)
 const expected = process.env.CRON_SECRET || process.env.PUNCH_SECRET || 'Thanhnam0';
 
 function authenticate(req) {
@@ -17,27 +14,19 @@ function authenticate(req) {
   if (token !== expected) throw new Error('invalid cron secret');
 }
 
-/**
- * Gửi thông báo và đặt khóa (lock) để chống spam
- * @param {string} lockKey - Key để khóa
- * @param {number} ttl - Thời gian khóa (giây)
- * @param {Object} chatParams - Tham số cho hàm sendChat
- */
 async function sendNotificationWithLock(lockKey, ttl, chatParams) {
   const lock = await kv.get(lockKey);
   if (lock) {
     console.log(`Notification locked (${lockKey}). Skipping.`);
     return { message: 'Skipped: Notification is locked.' };
   }
-  
-  // Gửi chat và đặt khóa
   await Promise.all([
     sendChat(chatParams),
     kv.set(lockKey, true, { ex: ttl })
   ]);
-  
   return { message: `Sent notification: ${chatParams.title}` };
 }
+
 
 export default async function handler(req, res) {
   const rid = req.headers['x-vercel-id'] || Date.now().toString();
@@ -68,10 +57,9 @@ export default async function handler(req, res) {
 
     // 3. Logic ngày OFF (ưu tiên cao nhất)
     if (isOff) {
-      // Chỉ gửi nhắc nhở "bật lại" vào buổi tối (18:00)
       if (currentHour === 18) {
         const lockKey = `lock:off:${dateKey}`;
-        return ok(await sendNotificationWithLock(lockKey, 3600 * 6, { // Khóa 6 tiếng
+        return ok(await sendNotificationWithLock(lockKey, 3600 * 6, {
           title: '🔔 Nhắc nhở (Ngày OFF)',
           message: `Hôm nay (${dateKey}) đã được đánh dấu OFF. Nếu mai đi làm (WFH T3/T4), hãy nhớ BẬT lại hệ thống.`,
           icon: 'config',
@@ -86,28 +74,23 @@ export default async function handler(req, res) {
       const state = await getPeriodState(dateKey, period);
       const status = (state && state.status) || 'pending';
       
-      // Nếu đã Success hoặc Manual Done -> Bỏ qua
       if (status === 'success' || status === 'manual_done') {
         return ok({ message: `Skipped reminder: Period ${period} is already '${status}'.` });
       }
 
-      // (status là 'pending' hoặc 'fail')
       let chatParams = null;
       let lockKey = `lock:${dateKey}:${period}`;
-      const lockTTL = 60 * 15; // Khóa 15 phút giữa các lần nhắc
+      const lockTTL = 60 * 15; 
 
       if (period === 'am' && currentHour >= 6 && currentHour <= 8) {
-        // Nhắc nhở AM (06:00 - 08:59)
         if (currentHour === 8 && now.getMinutes() >= 30) {
-          // 08:30 - Cảnh báo trễ deadline
-          lockKey = `lock:${dateKey}:am:final`; // Khóa cuối ngày
+          lockKey = `lock:${dateKey}:am:final`; 
           chatParams = {
             title: '⛔ CẢNH BÁO (AM) - TRỄ DEADLINE',
             message: 'Đã 08:30. GHA đã thất bại hoặc không chạy. Vui lòng tự Punch In và "Mark DONE" thủ công ngay!',
             icon: 'failure',
           };
         } else {
-          // Nhắc nhở thông thường
           chatParams = {
             title: '🔔 Nhắc nhở Punch In (Sáng)',
             message: `Hệ thống đang ở trạng thái "${status}". Vui lòng kiểm tra, hoặc "Mark DONE" nếu đã làm thủ công.`,
@@ -115,7 +98,6 @@ export default async function handler(req, res) {
           };
         }
       } else if (period === 'pm' && currentHour >= 18 && currentHour <= 20) {
-        // Nhắc nhở PM (18:00 - 20:59)
          if (currentHour === 20) {
             lockKey = `lock:${dateKey}:pm:final`;
             chatParams = {
@@ -138,18 +120,17 @@ export default async function handler(req, res) {
       return ok({ message: `Skipped WFH reminder: Not in valid time window (Hour: ${currentHour}).` });
     }
 
+    // --- BẮT ĐẦU SỬA (BLOCK 5) ---
     // 5. Logic ngày Văn phòng (Không phải T3/T4, không OFF)
-    // Chỉ chạy 1 lần lúc 07:45
-    if (currentHour === 7 && now.getMinutes() >= 45) {
-      const lockKey = `lock:office:${dateKey}`;
-      return ok(await sendNotificationWithLock(lockKey, 3600 * 12, { // Khóa 12 tiếng
-        title: '🏢 Nhắc nhở (Ngày Văn Phòng)',
-        message: 'Hôm nay là ngày lên văn phòng. Đừng quên tự check-in nhé!',
-        icon: 'info',
-      }));
-    }
-
-    return ok({ message: 'Skipped: No action required for this time.' });
+    // Xóa bỏ `if (currentHour === 7 ...)` vì GHA schedule (Prompt 19) đã xử lý thời gian (07:45)
+    
+    const lockKey = `lock:office:${dateKey}`;
+    return ok(await sendNotificationWithLock(lockKey, 3600 * 12, { // Khóa 12 tiếng
+      title: '🏢 Nhắc nhở (Ngày Văn Phòng)',
+      message: 'Hôm nay là ngày lên văn phòng. Đừng quên tự check-in nhé!',
+      icon: 'info',
+    }));
+    // --- KẾT THÚC SỬA ---
 
   } catch (e) {
     const msg = (e && e.message) || 'unknown error';
