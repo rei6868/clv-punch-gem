@@ -97,15 +97,16 @@ export default async function handler(req, res) {
         };
       }
 
-      // --- BẮT ĐẦU SỬA (CHỌ N ICON) ---
+      // --- BẮT ĐẦU SỬA (THÊM EMOJI) ---
       const successIcon = period === 'am' ? 'success_am' : 'success_pm';
-      // --- KẾT THÚC SỬA ---
+      const successEmoji = period === 'am' ? '☀️' : '🌙'; // <-- Emoji cho tiêu đề
 
       await sendChat({
-        title: `${periodText} Thành Công (Auto)`,
+        title: `${successEmoji} ${periodText} Thành Công (Auto)`, // <-- Thêm emoji vào title
+        // --- KẾT THÚC SỬA ---
         subtitle: subtitle,
         imageUrl: imageUrl || undefined, 
-        icon: successIcon,
+        icon: successIcon, // <-- Icon (to, đen)
         linkButton: linkButton,
       });
       // --- KẾT THÚC SỬA ---
