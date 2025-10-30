@@ -102,10 +102,10 @@ export default async function handler(req, res) {
       // --- KẾT THÚC SỬA ---
 
       await sendChat({
-        title: `✅ ${periodText} Thành Công (Auto)`,
+        title: `${periodText} Thành Công (Auto)`,
         subtitle: subtitle,
         imageUrl: imageUrl || undefined, 
-        icon: successIcon, // <-- Dùng icon đã chọn
+        icon: successIcon,
         linkButton: linkButton,
       });
       // --- KẾT THÚC SỬA ---
