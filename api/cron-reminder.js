@@ -2,7 +2,9 @@
 
 const { getIsEnabled, getIsOff, getPeriodState } = require('../lib/kv');
 const { kv } = require('@vercel/kv');
-const { getVietnamDateKey, getVietnamTime, isWFHDay, getCurrentPeriod } = require('../lib/time');
+// --- SỬA ---
+const { getVietnamDateKey, getVietnamTime, isWFHDay, getCurrentPeriod, isWeekend } = require('../lib/time');
+// --- HẾT SỬA ---
 const { sendChat } = require('../lib/chat');
 
 // (Giữ nguyên hàm authenticate, sendNotificationWithLock)
@@ -120,17 +122,21 @@ export default async function handler(req, res) {
       return ok({ message: `Skipped WFH reminder: Not in valid time window (Hour: ${currentHour}).` });
     }
 
-    // --- BẮT ĐẦU SỬA (BLOCK 5) ---
-    // 5. Logic ngày Văn phòng (Không phải T3/T4, không OFF)
-    // Xóa bỏ `if (currentHour === 7 ...)` vì GHA schedule (Prompt 19) đã xử lý thời gian (07:45)
-    
+    // --- BẮT ĐẦU SỬA (THÊM BLOCK 5) ---
+    // 5. Logic Cuối tuần (T7/CN)
+    if (isWeekend(now)) {
+      return ok({ message: `Skipped: It's the weekend (${dateKey}).` });
+    }
+    // --- KẾT THÚC SỬA ---
+
+    // 6. Logic ngày Văn phòng (Block 5 cũ, giờ là Block 6)
+    // (Không phải T3/T4, không OFF, không Cuối tuần)
     const lockKey = `lock:office:${dateKey}`;
     return ok(await sendNotificationWithLock(lockKey, 3600 * 12, { // Khóa 12 tiếng
       title: '🏢 Nhắc nhở (Ngày Văn Phòng)',
       message: 'Hôm nay là ngày lên văn phòng. Đừng quên tự check-in nhé!',
       icon: 'info',
     }));
-    // --- KẾT THÚC SỬA ---
 
   } catch (e) {
     const msg = (e && e.message) || 'unknown error';
