@@ -14,22 +14,24 @@ jobs:
   punch-in-out:
     name: Run Punch In/Out Script
     runs-on: ubuntu-latest
-    # --- BẮT ĐẦU SỬA ---
-    timeout-minutes: 10 # <-- Tăng từ 5 lên 10
-    # --- KẾT THÚC SỬA ---
-    
+    timeout-minutes: 10
+
     steps:
       - name: 1. Check out repository
         uses: actions/checkout@v4
 
-      - name: 3. Set up Node.js v20
+      - name: 3. Set up Node.js v20 and cache pnpm
         uses: actions/setup-node@v4
         with:
           node-version: 20
+          cache: 'pnpm'
+
+      - name: 3.5 Enable Corepack
+        run: corepack enable
 
       - name: 4. Install dependencies
         id: install_deps
-        run: pnpm install # (Đảm bảo dùng pnpm)
+        run: pnpm install
 
       - name: 5. Install Playwright browsers and dependencies
         id: install_playwright
@@ -45,7 +47,7 @@ jobs:
           CLOUDINARY_CLOUD_NAME: ${{ secrets.CLOUDINARY_CLOUD_NAME }}
           CLOUDINARY_API_KEY: ${{ secrets.CLOUDINARY_API_KEY }}
           CLOUDINARY_API_SECRET: ${{ secrets.CLOUDINARY_API_SECRET }}
-      
+
       - name: 7. Report Status to Vercel API
         if: always() # Luôn chạy, kể cả khi Step 6 fail
         run: |
@@ -53,14 +55,11 @@ jobs:
           if [ "${{ steps.run_playwright_test.outcome }}" == "success" ]; then
             STATUS="success"
           fi
-          
-          # Đọc outputs từ bước 6
+
           ERROR_MSG="${{ steps.run_playwright_test.outputs.error_message }}"
           IMAGE_URL="${{ steps.run_playwright_test.outputs.image_url }}"
           PUNCH_TIME="${{ steps.run_playwright_test.outputs.punch_time }}"
 
-          # --- BẮT ĐẦU SỬA (Cải thiện Lỗi) ---
-          # (Fix lỗi 'No details from GHA')
           if [ "$STATUS" == "fail" ] && [ -z "$ERROR_MSG" ]; then
             if [ "${{ job.status }}" == "cancelled" ] || [ "${{ steps.run_playwright_test.outcome }}" == "cancelled" ]; then
               ERROR_MSG="[GHA] Job was cancelled, possibly due to 10m timeout."
@@ -68,14 +67,13 @@ jobs:
               ERROR_MSG="[GHA] Playwright test failed but provided no error details."
             fi
           fi
-          # --- KẾT THÚC SỬA ---
 
-          PERIOD="am" 
+          PERIOD="am"
           HOUR_UTC=$(date -u +'%H')
           if [ "$HOUR_UTC" -gt "10" ] && [ "$HOUR_UTC" -lt "22" ]; then
-             PERIOD="pm"
+            PERIOD="pm"
           fi
-          
+
           JSON_PAYLOAD=$(cat <<EOF
           {
             "status": "$STATUS",
@@ -86,7 +84,7 @@ jobs:
           }
           EOF
           )
-          
+
           echo "Sending payload: $JSON_PAYLOAD"
 
           curl -X POST 'https://auto-punch.vercel.app/api/state/report' \
@@ -94,10 +92,12 @@ jobs:
             -H 'Content-Type: application/json' \
             -d "$JSON_PAYLOAD" \
             --fail
-            
+
       - name: 8. Notify on Workflow Setup Failure
-        if: failure() && (steps.install_deps.outcome == 'failure' || steps.install_playwright.outcome == 'failure')
+        if: failure() && (steps.install_deps.outcome == 'failure' || steps.install_playwright.outcome == 'failure' || steps.run_playwright_test.outcome == 'failure')
         run: |
-          curl -X POST -H 'Content-Type: application/json' \
-          '${{ secrets.GOOGLE_CHAT_WEBHOOK_URL }}' \
-          -d '{ "text": "🚨 **Workflow `Auto Punch (WFH)` đã thất bại.**\nLỗi xảy ra ở bước setup (ví dụ: install dependencies), không phải lỗi do script test.\nCần kiểm tra ngay tại tab Actions của GitHub." }'
+          if [ "${{ steps.run_playwright_test.outcome }}" != "failure" ]; then
+            curl -X POST -H 'Content-Type: application/json' \
+              '${{ secrets.GOOGLE_CHAT_WEBHOOK_URL }}' \
+              -d '{ "text": "🚨 **Workflow `Auto Punch (WFH)` đã thất bại.**\nLỗi xảy ra ở bước setup (ví dụ: install dependencies), không phải lỗi do script test.\nCần kiểm tra ngay tại tab Actions của GitHub." }'
+          fi
