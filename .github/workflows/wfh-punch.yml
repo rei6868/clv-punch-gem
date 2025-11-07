@@ -20,18 +20,22 @@ jobs:
       - name: 1. Check out repository
         uses: actions/checkout@v4
 
-      - name: 3. Set up Node.js v20 and cache pnpm
+      # --- BẮT ĐẦU SỬA ---
+      - name: 2.5 Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9 # (Sử dụng phiên bản 9, tương thích với Vercel)
+
+      - name: 3. Set up Node.js v20
         uses: actions/setup-node@v4
         with:
           node-version: 20
-          cache: 'pnpm'
-
-      - name: 3.5 Enable Corepack
-        run: corepack enable
+          cache: 'pnpm' # (Giữ cache pnpm)
+      # --- KẾT THÚC SỬA ---
 
       - name: 4. Install dependencies
         id: install_deps
-        run: pnpm install
+        run: pnpm install # (Bây giờ pnpm sẽ 100% tồn tại)
 
       - name: 5. Install Playwright browsers and dependencies
         id: install_playwright
