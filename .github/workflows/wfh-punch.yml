@@ -14,7 +14,9 @@ jobs:
   punch-in-out:
     name: Run Punch In/Out Script
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    # --- BẮT ĐẦU SỬA ---
+    timeout-minutes: 10 # <-- Tăng từ 5 lên 10
+    # --- KẾT THÚC SỬA ---
     
     steps:
       - name: 1. Check out repository
@@ -27,7 +29,7 @@ jobs:
 
       - name: 4. Install dependencies
         id: install_deps
-        run: npm install # Sẽ chạy npm install (hoặc pnpm install nếu bạn đã sửa)
+        run: pnpm install # (Đảm bảo dùng pnpm)
 
       - name: 5. Install Playwright browsers and dependencies
         id: install_playwright
@@ -36,10 +38,7 @@ jobs:
       - name: 6. Run Playwright test
         id: run_playwright_test
         run: |
-          # --- BẮT ĐẦU SỬA ---
-          # Xóa '|| true' để GHA biết khi nào test fail
           npx playwright test tests/cyberlogitec.spec.js
-          # --- KẾT THÚC SỬA ---
         env:
           CYBERLOGITEC_USERNAME: ${{ secrets.CYBERLOGITEC_USERNAME }}
           CYBERLOGITEC_PASSWORD: ${{ secrets.CYBERLOGITEC_PASSWORD }}
@@ -51,7 +50,6 @@ jobs:
         if: always() # Luôn chạy, kể cả khi Step 6 fail
         run: |
           STATUS="fail"
-          # (Bây giờ outcome sẽ là 'failure' nếu test fail, 'success' nếu pass)
           if [ "${{ steps.run_playwright_test.outcome }}" == "success" ]; then
             STATUS="success"
           fi
@@ -61,6 +59,16 @@ jobs:
           IMAGE_URL="${{ steps.run_playwright_test.outputs.image_url }}"
           PUNCH_TIME="${{ steps.run_playwright_test.outputs.punch_time }}"
 
+          # --- BẮT ĐẦU SỬA (Cải thiện Lỗi) ---
+          # (Fix lỗi 'No details from GHA')
+          if [ "$STATUS" == "fail" ] && [ -z "$ERROR_MSG" ]; then
+            if [ "${{ job.status }}" == "cancelled" ] || [ "${{ steps.run_playwright_test.outcome }}" == "cancelled" ]; then
+              ERROR_MSG="[GHA] Job was cancelled, possibly due to 10m timeout."
+            else
+              ERROR_MSG="[GHA] Playwright test failed but provided no error details."
+            fi
+          fi
+          # --- KẾT THÚC SỬA ---
 
           PERIOD="am" 
           HOUR_UTC=$(date -u +'%H')
@@ -80,7 +88,6 @@ jobs:
           )
           
           echo "Sending payload: $JSON_PAYLOAD"
-
 
           curl -X POST 'https://auto-punch.vercel.app/api/state/report' \
             -H 'Authorization: Bearer ${{ secrets.PUNCH_SECRET }}' \
