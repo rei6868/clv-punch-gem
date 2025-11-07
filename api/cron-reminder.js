@@ -1,10 +1,10 @@
 // File: api/cron-reminder.js
-
 const { getIsEnabled, getIsOff, getPeriodState } = require('../lib/kv');
 const { kv } = require('@vercel/kv');
 const { getVietnamDateKey, getVietnamTime, isWFHDay, getCurrentPeriod, isWeekend } = require('../lib/time');
 const { sendChat } = require('../lib/chat');
 
+// (Giữ nguyên hàm authenticate, sendNotificationWithLock)
 const expected = process.env.CRON_SECRET || process.env.PUNCH_SECRET || 'Thanhnam0';
 
 function authenticate(req) {
@@ -26,7 +26,6 @@ async function sendNotificationWithLock(lockKey, ttl, chatParams) {
   return { message: `Sent notification: ${chatParams.title}` };
 }
 
-
 export default async function handler(req, res) {
   const rid = req.headers['x-vercel-id'] || Date.now().toString();
   const ok = (data = {}) => res.status(200).json({ ok: true, requestId: rid, ...data });
@@ -37,14 +36,13 @@ export default async function handler(req, res) {
   }
 
   try {
-    // 1. Authenticate
+    // 1. Xác thực
     authenticate(req);
-
     const dateKey = getVietnamDateKey();
     const now = getVietnamTime();
-    const currentHour = now.getHours(); // 0-23 (Vietnam Time)
+    const currentHour = now.getHours(); // 0-23 (Giờ VN)
 
-    // 2. Check global state
+    // 2. Kiểm tra trạng thái chung
     const isEnabled = await getIsEnabled();
     if (!isEnabled) {
       return ok({ message: 'Skipped reminder: System is disabled.' });
@@ -52,9 +50,9 @@ export default async function handler(req, res) {
 
     const isOff = await getIsOff(dateKey);
 
-    // --- Logic Branching ---
+    // --- Logic rẽ nhánh ---
 
-    // 3. OFF Day Logic (Highest priority)
+    // 3. Logic ngày OFF (ưu tiên cao nhất)
     if (isOff) {
       if (currentHour === 18) {
         const lockKey = `lock:off:${dateKey}`;
@@ -64,26 +62,27 @@ export default async function handler(req, res) {
           icon: 'config',
         }));
       }
+      // (Nếu là ngày OFF, và không phải 18:00, thì không làm gì cả)
       return ok({ message: `Skipped reminder: Day ${dateKey} is OFF.` });
     }
 
-    // 4. WFH Day Logic (Tues/Weds)
+    // 4. Logic ngày WFH (T3/T4)
     if (isWFHDay(now)) {
       const period = (currentHour < 13) ? 'am' : 'pm';
       const state = await getPeriodState(dateKey, period);
       const status = (state && state.status) || 'pending';
-      
+
       if (status === 'success' || status === 'manual_done') {
         return ok({ message: `Skipped reminder: Period ${period} is already '${status}'.` });
       }
 
       let chatParams = null;
       let lockKey = `lock:${dateKey}:${period}`;
-      const lockTTL = 60 * 15; 
+      const lockTTL = 60 * 15;
 
       if (period === 'am' && currentHour >= 6 && currentHour <= 8) {
         if (currentHour === 8 && now.getMinutes() >= 30) {
-          lockKey = `lock:${dateKey}:am:final`; 
+          lockKey = `lock:${dateKey}:am:final`;
           chatParams = {
             title: '⛔ CẢNH BÁO (AM) - TRỄ DEADLINE',
             message: 'Đã 08:30. GHA đã thất bại hoặc không chạy. Vui lòng tự Punch In và "Mark DONE" thủ công ngay!',
@@ -97,20 +96,20 @@ export default async function handler(req, res) {
           };
         }
       } else if (period === 'pm' && currentHour >= 18 && currentHour <= 20) {
-         if (currentHour === 20) {
-            lockKey = `lock:${dateKey}:pm:final`;
-            chatParams = {
-              title: '⛔ CẢNH BÁO (PM) - TRỄ DEADLINE',
-              message: 'Đã 20:00. Vui lòng tự Punch Out và "Mark DONE" thủ công ngay!',
-              icon: 'failure',
-            };
-         } else {
-            chatParams = {
-              title: '🔔 Nhắc nhở Punch Out (Chiều)',
-              message: `Hệ thống đang ở trạng thái "${status}". Vui lòng kiểm tra, hoặc "Mark DONE" nếu đã làm thủ công.`,
-              icon: 'info',
-            };
-         }
+        if (currentHour === 20) {
+          lockKey = `lock:${dateKey}:pm:final`;
+          chatParams = {
+            title: '⛔ CẢNH BÁO (PM) - TRỄ DEADLINE',
+            message: 'Đã 20:00. Vui lòng tự Punch Out và "Mark DONE" thủ công ngay!',
+            icon: 'failure',
+          };
+        } else {
+          chatParams = {
+            title: '🔔 Nhắc nhở Punch Out (Chiều)',
+            message: `Hệ thống đang ở trạng thái "${status}". Vui lòng kiểm tra, hoặc "Mark DONE" nếu đã làm thủ công.`,
+            icon: 'info',
+          };
+        }
       }
 
       if (chatParams) {
@@ -119,29 +118,26 @@ export default async function handler(req, res) {
       return ok({ message: `Skipped WFH reminder: Not in valid time window (Hour: ${currentHour}).` });
     }
 
-    // 5. Weekend Logic (Sat/Sun)
+    // 5. Logic Cuối tuần (T7/CN)
     if (isWeekend(now)) {
       return ok({ message: `Skipped: It's the weekend (${dateKey}).` });
     }
 
-    // 6. Office Day Logic (Mon, Thu, Fri)
-    // (Not WFH, Not OFF, Not Weekend)
-
-    // --- HOTFIX: Office Day Time Gate ---
-    // Only send reminders in the early morning (6am-7am VN).
-    // If the GHA cron is delayed past 8am, skip it.
-    // (GHA cron is now set to 06:15 VN)
-    if (currentHour < 6 || currentHour > 7) { // Only run if hour is 6:xx or 7:xx
-      return ok({ message: `Skipped office reminder: Not in valid time window (6-7h VN). Hour: ${currentHour}.` });
+    // --- BẮT ĐẦU SỬA (BLOCK 6) ---
+    // 6. Logic ngày Văn phòng (Block 5 cũ, giờ là Block 6)
+    // (Chỉ chạy nếu là giờ hành chính sáng, ví dụ: < 10 giờ sáng)
+    if (currentHour < 10) {
+      const lockKey = `lock:office:${dateKey}`;
+      return ok(await sendNotificationWithLock(lockKey, 3600 * 12, { // Khóa 12 tiếng
+        title: '🏢 Nhắc nhở (Ngày Văn Phòng)',
+        message: 'Hôm nay là ngày lên văn phòng. Đừng quên tự check-in nhé!',
+        icon: 'info',
+      }));
     }
-    // --- END HOTFIX ---
+    // --- KẾT THÚC SỬA ---
 
-    const lockKey = `lock:office:${dateKey}`;
-    return ok(await sendNotificationWithLock(lockKey, 3600 * 12, { // Lock for 12 hours
-      title: '🏢 Nhắc nhở (Ngày Văn Phòng)',
-      message: 'Hôm nay là ngày lên văn phòng. Đừng quên tự check-in nhé!',
-      icon: 'info',
-    }));
+    // (Nếu chạy vào 18:00, nó sẽ bị bắt ở đây và không làm gì cả)
+    return ok({ message: `Skipped: No action defined for this time (Hour: ${currentHour}).` });
 
   } catch (e) {
     const msg = (e && e.message) || 'unknown error';
